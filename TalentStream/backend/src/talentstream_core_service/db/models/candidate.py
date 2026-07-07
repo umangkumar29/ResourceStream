@@ -1,7 +1,8 @@
 import uuid
 import enum
 from datetime import datetime
-from sqlalchemy import Column, String, Text, Numeric, DateTime, Enum as SAEnum
+from sqlalchemy import Column, String, Text, Numeric, DateTime, Enum as SAEnum, ForeignKey
+from sqlalchemy.orm import relationship
 from sqlalchemy.dialects.postgresql import UUID, JSONB
 from pgvector.sqlalchemy import Vector
 from talentstream_core_service.db.database import Base
@@ -27,7 +28,21 @@ class Candidate(Base):
     experience_years = Column(Numeric(4, 1))
     resume_url = Column(String)
     resume_json = Column(JSONB)
-    embedding = Column(Vector(1536))
     created_at = Column(DateTime(timezone=True), default=datetime.utcnow)
     updated_at = Column(DateTime(timezone=True), default=datetime.utcnow, onupdate=datetime.utcnow)
 
+    # Relationship to semantic chunks
+    chunks = relationship("CandidateChunk", back_populates="candidate", cascade="all, delete-orphan")
+
+class CandidateChunk(Base):
+    __tablename__ = "candidate_chunks"
+
+    id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    candidate_id = Column(UUID(as_uuid=True), ForeignKey("candidates.id"), nullable=False)
+    chunk_type = Column(String, nullable=False)
+    chunk_text = Column(Text, nullable=False)
+    embedding = Column(Vector(1536), nullable=False)
+    chunk_metadata = Column(JSONB, nullable=True)  # Stores dynamic fields like company, role, dates
+    created_at = Column(DateTime(timezone=True), default=datetime.utcnow)
+    
+    candidate = relationship("Candidate", back_populates="chunks")

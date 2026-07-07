@@ -104,36 +104,64 @@ def get_top_candidates(db: Session, job_id: str, excluded_candidate_ids: list[st
     db.execute(text("SET LOCAL enable_indexscan = off"))
 
     # Exact cosine similarity search across ALL bench candidates
-    # <=> = cosine distance (lower = more similar), 1 - distance = cosine similarity score
+    # Exact cosine similarity search across ALL chunks of bench candidates
     rows = db.execute(
         text(f"""
             SELECT
-                id::text AS candidate_id,
-                resume_json,
-                1 - (embedding <=> CAST(:embedding AS vector)) AS similarity_score
-            FROM candidates
+                c.id::text AS candidate_id,
+                c.resume_json,
+                1 - (cc.embedding <=> CAST(:embedding AS vector)) AS chunk_similarity
+            FROM candidates c
+            JOIN candidate_chunks cc ON c.id = cc.candidate_id
             WHERE
-                embedding IS NOT NULL
-                AND status = 'bench'
+                c.status = 'bench'
                 {exclusion_clause}
-            ORDER BY embedding <=> CAST(:embedding AS vector)
-            LIMIT :limit
         """),
         params
     ).fetchall()
 
     if not rows:
         return [], top_k
+
+    # --- BLENDED SCORING ALGORITHM ---
+    # Group chunk scores by candidate
+    candidate_scores = {}
+    candidate_jsons = {}
+    for r in rows:
+        cid = r.candidate_id
+        if cid not in candidate_scores:
+            candidate_scores[cid] = []
+            candidate_jsons[cid] = r.resume_json
+        candidate_scores[cid].append(float(r.chunk_similarity))
+
+    # Calculate blended score (0.7 * Top Chunk + 0.3 * Avg of Top 3 Chunks)
+    blended_results = []
+    for cid, scores in candidate_scores.items():
+        scores.sort(reverse=True)
+        top_1 = scores[0]
+        top_3 = scores[:3]
+        avg_top_3 = sum(top_3) / len(top_3)
+        blended_score = (0.7 * top_1) + (0.3 * avg_top_3)
         
-    print(f"[W1] Job {job_id}: pgvector retrieved {len(rows)} candidates (limit={fetch_limit})")
+        blended_results.append({
+            "candidate_id": cid,
+            "resume_json": candidate_jsons[cid],
+            "similarity_score": blended_score
+        })
+
+    # Sort by overall blended score and take the fetch_limit
+    blended_results.sort(key=lambda x: x["similarity_score"], reverse=True)
+    pgvector_top_candidates = blended_results[:fetch_limit]
+        
+    print(f"[W1] Job {job_id}: pgvector retrieved {len(pgvector_top_candidates)} candidates (limit={fetch_limit}) using Blended Scoring")
 
     # --- PHASE 2: BGE CROSS-ENCODER RERANKING ---
-    print(f"[W1] Reranking {len(rows)} candidates using BGE Cross-Encoder...")
+    print(f"[W1] Reranking {len(pgvector_top_candidates)} candidates using BGE Cross-Encoder...")
     pairs = []
     candidate_meta = []
 
-    for r in rows:
-        rj = r.resume_json or {}
+    for r in pgvector_top_candidates:
+        rj = r["resume_json"] or {}
         if "candidate" in rj:
             rj = rj["candidate"]
         
@@ -146,8 +174,8 @@ def get_top_candidates(db: Session, job_id: str, excluded_candidate_ids: list[st
         
         pairs.append([jd_text, candidate_text])
         candidate_meta.append({
-            "candidate_id": str(r.candidate_id), 
-            "pgvector_score": float(r.similarity_score)
+            "candidate_id": str(r["candidate_id"]), 
+            "pgvector_score": float(r["similarity_score"])
         })
 
     # Predict scores using the CrossEncoder

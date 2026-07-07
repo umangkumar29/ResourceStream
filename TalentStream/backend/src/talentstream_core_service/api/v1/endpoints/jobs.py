@@ -7,7 +7,7 @@ from sqlalchemy.orm import Session
 from talentstream_core_service.db.database import get_db
 from talentstream_core_service.db.models import JobRequest, JobStatus, Candidate, CandidateStatus, Project
 from talentstream_core_service.auth.auth import get_current_user, require_roles, CurrentUser
-from talentstream_core_service.services.ai_services.openai_service import openai_service
+from talentstream_core_service.services.embeddings.openai import OpenAIEmbeddings
 from talentstream_core_service.repositories.job_repository import JobRepository
 from talentstream_core_service.schemas.job import (
     CreateJobRequest, UpdateMatchStatusRequest, GenerateJDRequest,
@@ -35,7 +35,7 @@ def create_job(
     ),
 ):
     # 1. Create embedding of the JD description
-    embedding_vector = openai_service.get_embedding(payload.description)
+    embedding_vector = OpenAIEmbeddings().get_embedding(payload.description)
 
     pm_id = None
     try:
@@ -288,8 +288,8 @@ def generate_jd(
     payload: GenerateJDRequest,
     current_user: CurrentUser = Depends(get_current_user),
 ):
-    from talentstream_core_service.services.ai_services.openai_service import openai_service
-    jd_content = openai_service.generate_jd_from_keywords(
+    from talentstream_core_service.services.llm.openai import OpenAILLM
+    jd_content = OpenAILLM().generate_jd_from_keywords(
         keywords=payload.keywords,
         role_title=payload.title or "Open Role"
     )

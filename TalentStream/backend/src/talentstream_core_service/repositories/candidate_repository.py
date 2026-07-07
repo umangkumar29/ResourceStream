@@ -13,6 +13,22 @@ class CandidateRepository:
     def get_by_email(self, email: str) -> Optional[Candidate]:
         return self.db.query(Candidate).filter(Candidate.email == email).first()
 
+    def get_by_email_or_phone(self, email: Optional[str], phone: Optional[str]) -> Optional[Candidate]:
+        from sqlalchemy import or_
+        filters = []
+        if email:
+            filters.append(Candidate.email == email)
+        if phone:
+            filters.append(Candidate.phone == phone)
+        if not filters:
+            return None
+        return self.db.query(Candidate).filter(or_(*filters)).first()
+        
+    def save_chunks(self, chunks: list) -> None:
+        if chunks:
+            self.db.add_all(chunks)
+            self.db.commit()
+
     def get_all(self, search: Optional[str] = None, status_filter: Optional[str] = None, skip: int = 0, limit: int = 100) -> List[Candidate]:
         query = self.db.query(Candidate)
 
