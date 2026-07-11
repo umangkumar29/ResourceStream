@@ -1,0 +1,27 @@
+{
+    "version": "0.2.0",
+    "configurations": [
+        
+        
+        {
+            "name": "Python: FastAPI Backend",
+            "type": "debugpy",
+            "request": "launch",
+            "module": "uvicorn",
+            "args": [
+                "talentstream_core_service.main:app",
+                "--port",
+                "8000"
+            ],
+            "python": "${workspaceFolder}/TalentStream/backend/venv/Scripts/python.exe",
+            "jinja": true,
+            "justMyCode": false,
+            "cwd": "${workspaceFolder}/TalentStream/backend/src",
+            "env": {
+                "DATABASE_URL": "postgresql://tsuser:tspassword@localhost:5433/talentstream",
+                "RABBITMQ_URL": "amqp://tsuser:tspassword@localhost:5672/?heartbeat=600"
+            },
+            "envFile": "${workspaceFolder}/TalentStream/backend/.env"
+        }
+    ]
+}

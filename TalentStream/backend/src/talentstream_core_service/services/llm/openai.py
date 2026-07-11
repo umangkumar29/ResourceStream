@@ -1,9 +1,41 @@
 import json
-from typing import Dict, Any
+from typing import Dict, Any, List, Optional
 from openai import OpenAI
 from tenacity import retry, stop_after_attempt, wait_exponential
+from pydantic import BaseModel, Field
+from langsmith import traceable
+from langsmith.wrappers import wrap_openai
 from talentstream_core_service.configs.config import settings
 from .base import BaseLLM
+
+# --- STRICT SCHEMAS FOR LLM EXTRACTION ---
+class WorkExperienceExtract(BaseModel):
+    role: str = Field(default="")
+    company: str = Field(default="")
+    duration: str = Field(default="")
+    technologies: List[str] = Field(default_factory=list)
+    key_achievements: List[str] = Field(default_factory=list)
+
+class KeyProjectExtract(BaseModel):
+    project_name: str = Field(default="")
+    role_played: str = Field(default="")
+    technologies_used: List[str] = Field(default_factory=list)
+    description: str = Field(default="")
+
+class CandidateExtract(BaseModel):
+    name: str = Field(default="Unknown")
+    email: Optional[str] = Field(default=None)
+    phone: Optional[str] = Field(default=None)
+    total_experience_years: float = Field(default=0.0)
+    professional_summary: str = Field(default="")
+    skills: List[str] = Field(default_factory=list)
+    domain_expertise: List[str] = Field(default_factory=list)
+    work_experience: List[WorkExperienceExtract] = Field(default_factory=list)
+    key_projects: List[KeyProjectExtract] = Field(default_factory=list)
+    education_and_certifications: List[str] = Field(default_factory=list)
+
+class ResumeParseResponse(BaseModel):
+    candidate: CandidateExtract
 
 
 class OpenAILLM(BaseLLM):
@@ -12,11 +44,12 @@ class OpenAILLM(BaseLLM):
     """
 
     def __init__(self):
+        # wrap_openai auto-instruments all calls made by this client to LangSmith
         self._client = (
-            OpenAI(
+            wrap_openai(OpenAI(
                 api_key=settings.OPENAI_API_KEY,
                 base_url=settings.OPENAI_BASE_URL if settings.OPENAI_BASE_URL else None,
-            )
+            ))
             if settings.OPENAI_API_KEY
             else None
         )
@@ -87,6 +120,7 @@ class OpenAILLM(BaseLLM):
         )
         return response.choices[0].message.content.strip()
 
+    @traceable(name="Extract Resume JSON", run_type="chain")
     @retry(
         stop=stop_after_attempt(3), wait=wait_exponential(multiplier=1, min=2, max=10)
     )
@@ -188,12 +222,18 @@ class OpenAILLM(BaseLLM):
         if not content:
             return fallback_json
 
-        try:
-            content = content.strip()
-            if content.startswith("```"):
-                content = content.split("```")[1]
-                if content.startswith("json"):
-                    content = content[4:]
-            return json.loads(content.strip())
-        except json.JSONDecodeError:
-            return fallback_json
+        content = content.strip()
+        if content.startswith("```"):
+            content = content.split("```")[1]
+            if content.startswith("json"):
+                content = content[4:]
+        
+        # Parse raw JSON. If it fails, json.JSONDecodeError is raised and triggers @retry
+        raw_json = json.loads(content.strip())
+        
+        # STRICT VALIDATION: Pass through Pydantic to ensure all keys/types are correct.
+        # If the LLM missed a required field or hallucinates types, ValidationError is raised and triggers @retry
+        validated_data = ResumeParseResponse.model_validate(raw_json)
+        
+        # Return as standard dict for the rest of the app
+        return validated_data.model_dump()

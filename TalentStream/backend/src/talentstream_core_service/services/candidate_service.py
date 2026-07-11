@@ -23,6 +23,24 @@ class CandidateService:
         self.vectorstore = PGVectorStore(db)
 
     def process_and_upload_resume(self, file_bytes: bytes, filename: str, uploaded_by_email: str) -> Dict[str, Any]:
+        import hashlib
+        # --- PRE-LLM DEDUPLICATION (Zero-Cost Hash Check) ---
+        file_hash = hashlib.sha256(file_bytes).hexdigest()
+        duplicate_by_hash = self.repo.get_by_file_hash(file_hash)
+        if duplicate_by_hash:
+            logger.info(f"[candidates] Duplicate file detected by hash: {filename}")
+            raise HTTPException(
+                status_code=409,
+                detail={
+                    "error": "DUPLICATE_CANDIDATE",
+                    "message": f"This exact resume file was already uploaded for {duplicate_by_hash.name}.",
+                    "existing_candidate_id": str(duplicate_candidate.id) if 'duplicate_candidate' in locals() else str(duplicate_by_hash.id),
+                    "email": duplicate_by_hash.email,
+                    "phone": duplicate_by_hash.phone,
+                    "name": duplicate_by_hash.name
+                }
+            )
+
         # Extract text (as fallback hint) and images (for GPT-4o Vision)
         resume_text = extract_text_from_pdf(file_bytes)
         base64_images = convert_pdf_to_images(file_bytes)
@@ -66,27 +84,42 @@ class CandidateService:
         logger.info("[candidates] Uploading Candidate's resume...")
         resume_url = azure_storage_service.upload_resume(file_bytes, filename)
 
-        # Save to Postgres via SQLAlchemy
-        new_candidate = Candidate(
-            id=uuid.uuid4(),
-            name=extracted_name,
-            email=extracted_email,
-            phone=extracted_phone,
-            employee_id=None,  # Set manually by RMG after upload
-            skills=extracted_skills,
-            experience_years=exp_float,
-            status="bench",
-            resume_url=resume_url,
-            resume_json=resume_json,
-            created_at=datetime.now(timezone.utc)
-        )
-        self.repo.create(new_candidate)
+        # Wrap database operations in a transaction
+        try:
+            # Save to Postgres via SQLAlchemy without committing yet
+            new_candidate = Candidate(
+                id=uuid.uuid4(),
+                name=extracted_name,
+                email=extracted_email,
+                phone=extracted_phone,
+                employee_id=None,  # Set manually by RMG after upload
+                skills=extracted_skills,
+                experience_years=exp_float,
+                status="bench",
+                resume_url=resume_url,
+                resume_json=resume_json,
+                file_hash=file_hash,
+                created_at=datetime.now(timezone.utc)
+            )
+            self.repo.create(new_candidate, auto_commit=False)
 
-        # --- SEMANTIC CHUNKING ---
-        chunks_data = create_semantic_chunks_from_json(str(new_candidate.id), resume_json)
-        
-        # --- EMBEDDING & VECTOR STORAGE ---
-        self.vectorstore.embed_and_store_chunks(str(new_candidate.id), chunks_data)
+            # --- SEMANTIC CHUNKING ---
+            chunks_data = create_semantic_chunks_from_json(str(new_candidate.id), resume_json)
+            
+            # --- EMBEDDING & VECTOR STORAGE ---
+            # Embed and save chunks without committing yet
+            self.vectorstore.embed_and_store_chunks(str(new_candidate.id), chunks_data, auto_commit=False)
+
+            # --- COMMIT TRANSACTION ---
+            # Both candidate and chunks are queued. If no errors occurred, commit all at once!
+            self.db.commit()
+            self.db.refresh(new_candidate)
+            
+        except Exception as e:
+            # If any step fails (e.g., OpenAI embedding failure), roll back everything.
+            self.db.rollback()
+            logger.error(f"[candidates] Atomic transaction failed for {filename}. Rolled back.")
+            raise HTTPException(status_code=500, detail=f"Pipeline error: {str(e)}")
 
         return {
             "status": "success",

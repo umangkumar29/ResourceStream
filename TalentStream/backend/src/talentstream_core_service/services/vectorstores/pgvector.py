@@ -13,7 +13,7 @@ class PGVectorStore:
         self.repo = CandidateRepository(db)
         self.embeddings_service = OpenAIEmbeddings()
 
-    def embed_and_store_chunks(self, candidate_id: str, chunks_data: List[Dict[str, Any]]) -> None:
+    def embed_and_store_chunks(self, candidate_id: str, chunks_data: List[Dict[str, Any]], auto_commit: bool = True) -> None:
         """
         Takes raw semantic chunk data, generates embeddings for each, and saves them to PGVector.
         """
@@ -39,4 +39,4 @@ class PGVectorStore:
             chunks_to_save.append(new_chunk)
         
         # 4. Perform a bulk database insert
-        self.repo.save_chunks(chunks_to_save)
+        self.repo.save_chunks(chunks_to_save, auto_commit=auto_commit)

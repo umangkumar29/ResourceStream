@@ -5,6 +5,10 @@ from sqlalchemy import Column, String, Text, Numeric, DateTime, Enum as SAEnum, 
 from sqlalchemy.orm import relationship
 from sqlalchemy.dialects.postgresql import UUID, JSONB
 from pgvector.sqlalchemy import Vector
+from sqlalchemy import Index
+# TSVECTOR for BM25 Keyword Search
+from sqlalchemy import Computed
+from sqlalchemy.dialects.postgresql import TSVECTOR
 from talentstream_core_service.db.database import Base
 
 class CandidateStatus(str, enum.Enum):
@@ -28,6 +32,7 @@ class Candidate(Base):
     experience_years = Column(Numeric(4, 1))
     resume_url = Column(String)
     resume_json = Column(JSONB)
+    file_hash = Column(String(64), index=True, nullable=True) # SHA-256 hash of the PDF file
     created_at = Column(DateTime(timezone=True), default=datetime.utcnow)
     updated_at = Column(DateTime(timezone=True), default=datetime.utcnow, onupdate=datetime.utcnow)
 
@@ -36,6 +41,9 @@ class Candidate(Base):
 
 class CandidateChunk(Base):
     __tablename__ = "candidate_chunks"
+    __table_args__ = (
+        Index('ix_candidate_chunks_tsv', 'tsv', postgresql_using='gin'),
+    )
 
     id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
     candidate_id = Column(UUID(as_uuid=True), ForeignKey("candidates.id"), nullable=False)
@@ -43,6 +51,7 @@ class CandidateChunk(Base):
     chunk_text = Column(Text, nullable=False)
     embedding = Column(Vector(1536), nullable=False)
     chunk_metadata = Column(JSONB, nullable=True)  # Stores dynamic fields like company, role, dates
+    tsv = Column(TSVECTOR, Computed("to_tsvector('english', chunk_text)", persisted=True))
     created_at = Column(DateTime(timezone=True), default=datetime.utcnow)
     
     candidate = relationship("Candidate", back_populates="chunks")
