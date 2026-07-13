@@ -41,11 +41,17 @@ const statusBadge = (status: string, l1_status?: string, l2_status?: string, hir
 };
 
 interface AIJustification {
-   verdict: string;
-   skill_alignment: { matched: string[]; missing: string[] };
-   experience_relevance: string;
-   findings: string[];
-   overall_summary: string;
+   verdict?: string;
+   skill_alignment?: { matched: string[]; missing: string[] };
+   experience_relevance?: string;
+   findings?: string[];
+   overall_summary?: string;
+   
+   matched_skills?: string[];
+   matched_experience?: string[];
+   notable_gaps?: string[];
+   ai_summary?: string;
+   match_percentage?: number;
 }
 
 const parseJustification = (raw: string | null): AIJustification | null => {
@@ -311,8 +317,8 @@ export const PGMMatches: React.FC = () => {
                         const scoreColorClass = scoreColor(r.match_score || 0).split(' ')[0]; 
                         const scoreBgClass = scoreColor(r.match_score || 0).split(' ')[2]; 
                         const isStrong = (r.match_score || 0) >= 70;
-                        const matchedSkills = ai?.skill_alignment?.matched?.slice(0, 5) || [];
-                        const extraSkills = (ai?.skill_alignment?.matched?.length || 0) - 5;
+                        const matchedSkills = (ai?.matched_skills || ai?.skill_alignment?.matched || []).slice(0, 5);
+                        const extraSkills = (ai?.matched_skills?.length || ai?.skill_alignment?.matched?.length || 0) - 5;
 
                         return (
                            <div 
@@ -680,7 +686,7 @@ export const PGMMatches: React.FC = () => {
                                     <Star className="w-4 h-4 text-indigo-500" /> AI Executive Summary
                                  </h3>
                                  <p className="text-[13px] text-slate-600 dark:text-white/70 leading-relaxed bg-indigo-50/50 dark:bg-indigo-500/[0.03] p-4 rounded-xl border border-indigo-100 dark:border-indigo-500/10 shadow-sm">
-                                    {parseJustification(drawerCandidate.ai_justification)?.overall_summary}
+                                    {parseJustification(drawerCandidate.ai_justification)?.ai_summary || parseJustification(drawerCandidate.ai_justification)?.overall_summary}
                                  </p>
                               </div>
 
@@ -689,7 +695,7 @@ export const PGMMatches: React.FC = () => {
                                     <Zap className="w-4 h-4 text-emerald-500" /> Key Strengths
                                  </h3>
                                  <ul className="space-y-3">
-                                    {(parseJustification(drawerCandidate.ai_justification)?.findings || []).map((f: string, i: number) => (
+                                    {(parseJustification(drawerCandidate.ai_justification)?.matched_experience || parseJustification(drawerCandidate.ai_justification)?.findings || []).map((f: string, i: number) => (
                                        <li key={i} className="flex items-start gap-2.5 text-[13px] font-medium text-slate-600 dark:text-white/60 leading-relaxed">
                                           <CheckCircle2 className="w-4 h-4 text-emerald-500 mt-0.5 shrink-0" />
                                           <span>{f}</span>
@@ -704,8 +710,8 @@ export const PGMMatches: React.FC = () => {
                                  </h3>
                                  {(() => {
                                     const ai = parseJustification(drawerCandidate.ai_justification);
-                                    const matched = ai?.skill_alignment?.matched || [];
-                                    const missing = ai?.skill_alignment?.missing || [];
+                                    const matched = ai?.matched_skills || ai?.skill_alignment?.matched || [];
+                                    const missing = ai?.notable_gaps || ai?.skill_alignment?.missing || [];
                                     return (
                                        <div className="space-y-5 bg-slate-50 dark:bg-[#172033] p-4 rounded-xl border border-slate-100 dark:border-white/[0.06] shadow-sm">
                                           <div>

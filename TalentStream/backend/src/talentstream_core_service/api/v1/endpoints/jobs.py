@@ -16,15 +16,6 @@ from talentstream_core_service.schemas.job import (
 
 router = APIRouter()
 
-# NOTE: _run_rag_in_background is intentionally kept as a fallback.
-# The primary matching path now goes through RabbitMQ (trigger_matching endpoint).
-def _run_rag_in_background(job_id: str, db: Session):
-    try:
-        from talentstream_core_service.services.ranking.rag_engine import rag_engine
-        rag_engine.run(job_id=job_id, db=db)
-    except Exception as exc:
-        print(f"[jobs] RAG pipeline error for job {job_id}: {exc}")
-
 
 @router.post("/jobs", summary="PM / Program Mgr / Admin: Create a job request")
 def create_job(
@@ -241,7 +232,7 @@ def get_matches(
             "id": str(m.id),
             "candidate_id": str(m.candidate_id),
             "match_score": float(m.match_score) if m.match_score else None,
-            "ai_justification": m.ai_justification,
+            "ai_justification": m.structured_explanation if m.structured_explanation else m.ai_justification,
             "status": m.status,
         }
         for m in matches
@@ -354,7 +345,7 @@ def get_job_results(
             "candidate_id": str(m.candidate_id),
             "candidate_name": c.name if c else "Unknown",
             "match_score": float(m.match_score) if m.match_score else None,
-            "ai_justification": m.ai_justification,
+            "ai_justification": m.structured_explanation if m.structured_explanation else m.ai_justification,
             "status": m.status,
             "l1_status": m.l1_status,
             "l2_status": m.l2_status,

@@ -18,20 +18,15 @@ def _verify_hasura_secret(x_hasura_event_secret: str = Header(None)):
     "/process-match",
     summary="Hasura Event Trigger: on_job_request_created",
     dependencies=[Depends(_verify_hasura_secret)],
+    status_code=202,
 )
 def process_match_webhook(payload: dict, db: Session = Depends(get_db)):
     """
     Receives a Hasura Event Trigger payload whenever a new row is
-    inserted into `job_requests` and runs the full RAG pipeline.
+    inserted into `job_requests` and dispatches the match job to
+    the RabbitMQ worker pipeline asynchronously.
 
-    Expected payload shape (Hasura standard):
-    {
-      "event": {
-        "data": {
-          "new": { "id": "...", ... }
-        }
-      }
-    }
+    Returns 202 immediately — results accumulate via W1 → W2.
     """
     try:
         new_row = payload.get("event", {}).get("data", {}).get("new", {})
@@ -40,15 +35,15 @@ def process_match_webhook(payload: dict, db: Session = Depends(get_db)):
         if not job_id:
             raise HTTPException(status_code=400, detail="Missing job_id in payload.")
 
-        results = rag_engine.run(job_id=job_id, db=db)
+        result = rag_engine.trigger(job_id=job_id, db=db)
 
         return {
-            "status": "success",
+            "status": "queued",
             "job_id": job_id,
-            "matches_generated": len(results),
+            "message": result.get("message", "Match dispatched to async workers."),
         }
 
     except ValueError as e:
         raise HTTPException(status_code=404, detail=str(e))
     except Exception as e:
-        raise HTTPException(status_code=500, detail=f"RAG pipeline failure: {str(e)}")
+        raise HTTPException(status_code=500, detail=f"Failed to dispatch match: {str(e)}")

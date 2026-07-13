@@ -25,7 +25,7 @@ import pika
 from dotenv import load_dotenv
 from sqlalchemy import create_engine, text
 from sqlalchemy.orm import sessionmaker, Session
-from sentence_transformers import CrossEncoder
+from langsmith import traceable
 
 
 load_dotenv()
@@ -34,45 +34,110 @@ DATABASE_URL = os.environ["DATABASE_URL"]
 RABBITMQ_URL = os.environ.get("RABBITMQ_URL", "amqp://tsuser:tspassword@rabbitmq:5672/")
 QUEUE_EVALUATION = "candidate_evaluation"
 QUEUE_SHORTLISTED = "candidate_shortlisted"
-BATCH_SIZE = 2
+BATCH_SIZE = 5
 
 # ── Database Setup ──────────────────────────────────────────────────────────────
 engine = create_engine(DATABASE_URL)
 SessionLocal = sessionmaker(bind=engine)
 
-# ── AI Models ───────────────────────────────────────────────────────────────────
-print("[W1] Loading BGE Reranker Model into memory...")
-try:
-    # Using v2-m3 for state-of-the-art multilingual and long-context accuracy.
-    # We constrain max_length to 2048 to balance extreme context depth with memory safety.
-    reranker = CrossEncoder('BAAI/bge-reranker-v2-m3', max_length=2048)
-    print("[W1] BGE Reranker ready.")
-except Exception as e:
-    print(f"[W1] CRITICAL ERROR: Failed to load BGE Reranker. {e}")
-    raise
+def rerank_with_api(query: str, documents: list[str]) -> list[float] | None:
+    """
+    Attempts to rerank using Jina AI, Cohere, or Hugging Face Inference API depending on which key is in .env.
+    Returns a list of floats (0.0 to 1.0) in the same order as documents, or None if failed.
+    """
+    import requests
+    cohere_key = os.environ.get("COHERE_API_KEY")
+    jina_key = os.environ.get("JINA_API_KEY")
+    hf_token = os.environ.get("HF_TOKEN") or os.environ.get("HF_API_KEY")
+    
+    if jina_key:
+        try:
+            print(f"[W1] Calling Jina AI Reranker API for {len(documents)} docs...")
+            resp = requests.post(
+                "https://api.jina.ai/v1/rerank",
+                headers={"Authorization": f"Bearer {jina_key}"},
+                json={"model": "jina-reranker-v3", "query": query, "documents": documents, "top_n": len(documents)},
+                timeout=15
+            )
+            if resp.status_code == 200:
+                results = resp.json().get("results", [])
+                scores = [0.0] * len(documents)
+                for r in results:
+                    scores[r["index"]] = max(0.0, min(1.0, r["relevance_score"]))
+                return scores
+            else:
+                print(f"[W1] Jina API Error: {resp.text}")
+        except Exception as e:
+            print(f"[W1] Jina API Exception: {e}")
+            
+    if cohere_key:
+        try:
+            print(f"[W1] Calling Cohere Rerank API for {len(documents)} docs...")
+            resp = requests.post(
+                "https://api.cohere.com/v1/rerank",
+                headers={"Authorization": f"Bearer {cohere_key}"},
+                json={"model": "rerank-english-v3.0", "query": query, "documents": documents},
+                timeout=15
+            )
+            if resp.status_code == 200:
+                results = resp.json().get("results", [])
+                scores = [0.0] * len(documents)
+                for r in results:
+                    scores[r["index"]] = max(0.0, min(1.0, r["relevance_score"]))
+                return scores
+            else:
+                print(f"[W1] Cohere API Error: {resp.text}")
+        except Exception as e:
+            print(f"[W1] Cohere API Exception: {e}")
 
-def safe_sigmoid(x: float) -> float:
-    """Safe sigmoid function to normalize raw CrossEncoder logits into 0-1 range without math overflow."""
-    try:
-        if x >= 0:
-            z = math.exp(-x)
-            return 1 / (1 + z)
-        else:
-            z = math.exp(x)
-            return z / (1 + z)
-    except Exception:
-        return 0.0
+    if hf_token:
+        try:
+            print(f"[W1] Calling Hugging Face BGE Reranker API for {len(documents)} docs...")
+            # Using Cross-Encoder standard payload for HF Inference API
+            payload = {"inputs": [{"text": query, "text_pair": doc} for doc in documents]}
+            resp = requests.post(
+                "https://api-inference.huggingface.co/models/BAAI/bge-reranker-base",
+                headers={"Authorization": f"Bearer {hf_token}"},
+                json=payload,
+                timeout=20
+            )
+            if resp.status_code == 200:
+                results = resp.json()
+                scores = []
+                for s in results:
+                    if isinstance(s, dict) and 'score' in s:
+                        scores.append(s['score'])
+                    elif isinstance(s, (float, int)):
+                        scores.append(float(s))
+                    elif isinstance(s, list) and len(s) > 0 and isinstance(s[0], dict) and 'score' in s[0]:
+                        scores.append(s[0]['score'])
+                    else:
+                        scores.append(0.5) # Fallback
+                
+                if len(scores) == len(documents):
+                    # Sigmoid normalization if logits are returned
+                    import math
+                    def sigmoid(x): return 1 / (1 + math.exp(-x))
+                    if any(s < 0 or s > 1 for s in scores):
+                        scores = [sigmoid(s) for s in scores]
+                    return scores
+            else:
+                print(f"[W1] HF API Error: {resp.text}")
+        except Exception as e:
+            print(f"[W1] HF API Exception: {e}")
 
+    return None
 
+# (BGE Reranker completely removed in favor of pure database-level hybrid RRF scoring)
 
+@traceable(name="W1_Hybrid_Search_And_Rerank", run_type="chain")
 def get_top_candidates(db: Session, job_id: str, excluded_candidate_ids: list[str] | None = None) -> tuple[list[dict], int]:
     """
-    Stage 1: SQL filter by availability + embedding existence
-    Stage 2: pgvector HNSW cosine similarity search (1536-d OpenAI embeddings)
-    Returns a list of {candidate_id, similarity_score} dicts and the top_k value.
-    Optionally excludes already-evaluated candidates (used for Re-Trigger Matches).
+    Stage 1: Hybrid Search (pgvector cosine + BM25 keyword RRF) -> Top 50 DISTINCT candidates.
+    Stage 2: BGE Cross-Encoder chunk scoring -> Chunk-Type Weighted Aggregation (50/30/15/5).
     """
-    # Fetch job metadata AND description
+    from collections import defaultdict
+
     job_row = db.execute(
         text("SELECT description, embedding, top_k FROM job_requests WHERE id = :job_id"),
         {"job_id": job_id}
@@ -83,116 +148,165 @@ def get_top_candidates(db: Session, job_id: str, excluded_candidate_ids: list[st
         return [], 0
 
     jd_text = job_row.description or ""
+    jd_vector = job_row.embedding
     top_k = int(job_row.top_k) if job_row.top_k else 5
-    
-    # Phase 1: Widen the net to ensure we don't drop strong candidates early
-    fetch_limit = max(top_k * 5, 50)
+    fetch_limit = max(top_k * 5, 50)  # Always get at least 50 for candidate pool
+
+    import re
+    # Extract meaningful words for OR-based BM25 search
+    words = [w for w in re.findall(r'\b[A-Za-z]{3,}\b', jd_text) if w.lower() not in {'and', 'the', 'for', 'with', 'this', 'that', 'are', 'you', 'will'}]
+    jd_keywords = " OR ".join(words[:30]) if words else "developer"
 
     # Build exclusion clause dynamically
     exclusion_clause = ""
-    params: dict = {"embedding": job_row.embedding, "limit": fetch_limit}
+    params: dict = {"jd_vector": str(jd_vector), "jd_text": jd_text[:1000], "jd_keywords": jd_keywords, "limit": fetch_limit}
     if excluded_candidate_ids:
-        # Use ANY(:exclude_ids) for clean parameterized exclusion
-        exclusion_clause = "AND id::text != ALL(CAST(:exclude_ids AS text[]))"
+        exclusion_clause = "AND c.id::text != ALL(CAST(:exclude_ids AS text[]))"
         params["exclude_ids"] = "{" + ",".join(excluded_candidate_ids) + "}"
-        print(f"[W1] Re-Trigger mode: excluding {len(excluded_candidate_ids)} already-evaluated candidates.")
+        print(f"[W1] Re-Trigger mode: excluding {len(excluded_candidate_ids)} candidates.")
 
-    # Force exact sequential scan for 100% recall at current scale (< 50k candidates).
-    # HNSW is ANN (approximate) — at 700-1000 resumes, exact scan is only ~10ms slower
-    # but guarantees NO candidate is ever missed by the approximation algorithm.
-    # When the pool grows beyond ~50k resumes, remove this line and tune hnsw.ef_search instead.
+    # ── STAGE 1 & 2: Bi-Encoder Hybrid Search (RRF) + Chunk Weighting ────────────
+    # Combines vector similarity and keyword BM25 into a fused score.
+    # We then apply the 50/30/15/5 chunk weights directly in SQL to calculate the final match_score.
     db.execute(text("SET LOCAL enable_indexscan = off"))
-
-    # Exact cosine similarity search across ALL bench candidates
-    # Exact cosine similarity search across ALL chunks of bench candidates
-    rows = db.execute(
-        text(f"""
+    
+    rrf_sql = text(f"""
+        WITH vector_ranked AS (
             SELECT
-                c.id::text AS candidate_id,
-                c.resume_json,
-                1 - (cc.embedding <=> CAST(:embedding AS vector)) AS chunk_similarity
-            FROM candidates c
-            JOIN candidate_chunks cc ON c.id = cc.candidate_id
-            WHERE
-                c.status = 'bench'
-                {exclusion_clause}
-        """),
-        params
-    ).fetchall()
-
-    if not rows:
+                cc.id AS chunk_id,
+                cc.candidate_id,
+                cc.chunk_type,
+                1 - (cc.embedding <=> CAST(:jd_vector AS vector)) AS cosine_sim,
+                RANK() OVER (ORDER BY cc.embedding <=> CAST(:jd_vector AS vector)) AS vec_rank
+            FROM candidate_chunks cc
+            JOIN candidates c ON c.id = cc.candidate_id
+            WHERE c.status = 'bench' {exclusion_clause}
+        ),
+        keyword_ranked AS (
+            SELECT
+                cc.id AS chunk_id,
+                cc.candidate_id,
+                cc.chunk_type,
+                RANK() OVER (
+                    ORDER BY ts_rank(cc.tsv, websearch_to_tsquery('english', :jd_keywords)) DESC
+                ) AS kw_rank
+            FROM candidate_chunks cc
+            JOIN candidates c ON c.id = cc.candidate_id
+            WHERE c.status = 'bench' {exclusion_clause}
+              AND cc.tsv @@ websearch_to_tsquery('english', :jd_keywords)
+        ),
+        fused AS (
+            SELECT
+                COALESCE(v.candidate_id, k.candidate_id) AS candidate_id,
+                COALESCE(v.chunk_type, k.chunk_type) AS chunk_type,
+                (1.0 / (60 + COALESCE(v.vec_rank, 1000))) +
+                (1.0 / (60 + COALESCE(k.kw_rank, 1000))) AS rrf_score,
+                v.cosine_sim
+            FROM vector_ranked v
+            FULL OUTER JOIN keyword_ranked k
+                ON v.chunk_id = k.chunk_id
+        ),
+        best_per_chunk_type AS (
+            SELECT DISTINCT ON (candidate_id, chunk_type) 
+                   candidate_id, chunk_type, rrf_score, cosine_sim
+            FROM fused
+            ORDER BY candidate_id, chunk_type, rrf_score DESC
+        ),
+        weighted_candidates AS (
+            SELECT candidate_id,
+                   SUM(
+                       rrf_score * 
+                       CASE 
+                           WHEN chunk_type = 'work_experience' THEN 0.50
+                           WHEN chunk_type = 'skills' THEN 0.30
+                           WHEN chunk_type = 'key_projects' THEN 0.15
+                           WHEN chunk_type = 'professional_summary' THEN 0.05
+                           ELSE 0.05
+                       END
+                   ) / SUM(
+                       CASE 
+                           WHEN chunk_type = 'work_experience' THEN 0.50
+                           WHEN chunk_type = 'skills' THEN 0.30
+                           WHEN chunk_type = 'key_projects' THEN 0.15
+                           WHEN chunk_type = 'professional_summary' THEN 0.05
+                           ELSE 0.05
+                       END
+                   ) AS final_rrf_score,
+                   SUM(
+                       COALESCE(cosine_sim, 0.0) * 
+                       CASE 
+                           WHEN chunk_type = 'work_experience' THEN 0.50
+                           WHEN chunk_type = 'skills' THEN 0.30
+                           WHEN chunk_type = 'key_projects' THEN 0.15
+                           WHEN chunk_type = 'professional_summary' THEN 0.05
+                           ELSE 0.05
+                       END
+                   ) / SUM(
+                       CASE 
+                           WHEN chunk_type = 'work_experience' THEN 0.50
+                           WHEN chunk_type = 'skills' THEN 0.30
+                           WHEN chunk_type = 'key_projects' THEN 0.15
+                           WHEN chunk_type = 'professional_summary' THEN 0.05
+                           ELSE 0.05
+                       END
+                   ) AS final_cosine_score
+            FROM best_per_chunk_type
+            GROUP BY candidate_id
+        )
+        SELECT w.candidate_id::text, w.final_rrf_score, w.final_cosine_score, c.resume_json
+        FROM weighted_candidates w
+        JOIN candidates c ON c.id = w.candidate_id
+        ORDER BY w.final_rrf_score DESC
+        LIMIT :limit;
+    """)
+    
+    rrf_rows = db.execute(rrf_sql, params).fetchall()
+    if not rrf_rows:
         return [], top_k
-
-    # --- BLENDED SCORING ALGORITHM ---
-    # Group chunk scores by candidate
-    candidate_scores = {}
-    candidate_jsons = {}
-    for r in rows:
-        cid = r.candidate_id
-        if cid not in candidate_scores:
-            candidate_scores[cid] = []
-            candidate_jsons[cid] = r.resume_json
-        candidate_scores[cid].append(float(r.chunk_similarity))
-
-    # Calculate blended score (0.7 * Top Chunk + 0.3 * Avg of Top 3 Chunks)
-    blended_results = []
-    for cid, scores in candidate_scores.items():
-        scores.sort(reverse=True)
-        top_1 = scores[0]
-        top_3 = scores[:3]
-        avg_top_3 = sum(top_3) / len(top_3)
-        blended_score = (0.7 * top_1) + (0.3 * avg_top_3)
         
-        blended_results.append({
-            "candidate_id": cid,
-            "resume_json": candidate_jsons[cid],
-            "similarity_score": blended_score
+    best_candidates = []
+    for row in rrf_rows:
+        best_candidates.append({
+            "candidate_id": row.candidate_id,
+            "resume_json": row.resume_json,
+            "similarity_score": float(row.final_cosine_score)
         })
-
-    # Sort by overall blended score and take the fetch_limit
-    blended_results.sort(key=lambda x: x["similarity_score"], reverse=True)
-    pgvector_top_candidates = blended_results[:fetch_limit]
-        
-    print(f"[W1] Job {job_id}: pgvector retrieved {len(pgvector_top_candidates)} candidates (limit={fetch_limit}) using Blended Scoring")
-
-    # --- PHASE 2: BGE CROSS-ENCODER RERANKING ---
-    print(f"[W1] Reranking {len(pgvector_top_candidates)} candidates using BGE Cross-Encoder...")
-    pairs = []
-    candidate_meta = []
-
-    for r in pgvector_top_candidates:
-        rj = r["resume_json"] or {}
-        if "candidate" in rj:
-            rj = rj["candidate"]
-        
-        skills = rj.get("skills", [])
-        skills_str = ", ".join(skills) if isinstance(skills, list) else str(skills)
-        summary = rj.get("professional_summary", "") or ""
-        
-        # Combine skills and summary for the reranker context
-        candidate_text = f"Skills: {skills_str}\nSummary: {summary}"
-        
-        pairs.append([jd_text, candidate_text])
-        candidate_meta.append({
-            "candidate_id": str(r["candidate_id"]), 
-            "pgvector_score": float(r["similarity_score"])
-        })
-
-    # Predict scores using the CrossEncoder
-    scores = reranker.predict(pairs)
-
-    # Attach BGE scores and sort descending
-    for i, score in enumerate(scores):
-        candidate_meta[i]["similarity_score"] = float(score)  # Replace pgvector score
-        
-    candidate_meta.sort(key=lambda x: x["similarity_score"], reverse=True)
-
-    # Take exactly top_k — BGE re-ranker narrows the pool accurately before LLM
-    final_limit = top_k
-    best_candidates = candidate_meta[:final_limit]
-
-    print(f"[W1] BGE Reranking complete. Forwarding {len(best_candidates)} to LLM worker.")
+    
+    # Optional Stage 2: Hosted API Reranking
+    # We take a slightly wider pool (up to 30) for the API to rerank
+    best_candidates = best_candidates[:max(top_k * 3, 30)]
+    
+    if os.environ.get("JINA_API_KEY") or os.environ.get("COHERE_API_KEY") or os.environ.get("HF_TOKEN") or os.environ.get("HF_API_KEY"):
+        documents_to_score = []
+        for c in best_candidates:
+            rj = c.get("resume_json") or {}
+            cand_data = rj.get("candidate", rj) if isinstance(rj, dict) else {}
+            
+            skills = ", ".join(cand_data.get("skills", []))
+            summary = cand_data.get("professional_summary", "")
+            # Truncate text to fit into API context windows
+            doc_text = f"Skills: {skills}\nSummary: {summary}"[:1500]
+            documents_to_score.append(doc_text)
+            
+        api_scores = rerank_with_api(query=jd_text[:1000], documents=documents_to_score)
+        if api_scores and len(api_scores) == len(best_candidates):
+            for i, c in enumerate(best_candidates):
+                c["similarity_score"] = api_scores[i]
+            
+            # Re-sort by the new hosted API reranker scores
+            best_candidates.sort(key=lambda x: x["similarity_score"], reverse=True)
+            print(f"[W1] Successfully reranked top {len(best_candidates)} using Hosted API.", flush=True)
+        else:
+            print("[W1] Hosted API Reranking failed or skipped. Using SQL cosine scores.", flush=True)
+            # Make sure it's sorted by SQL score if API fails
+            best_candidates.sort(key=lambda x: x["similarity_score"], reverse=True)
+            
+    # We already sorted, so we can just slice down to top_k
+    best_candidates = best_candidates[:top_k]
+    
+    print(f"[W1] Stage 1 & 2 complete. Forwarding Top {len(best_candidates)} to W2.", flush=True)
     return best_candidates, top_k
+
 
 
 def publish_batches(channel, job_id: str, pm_id: str | None, candidates: list[dict]) -> int:
@@ -200,7 +314,16 @@ def publish_batches(channel, job_id: str, pm_id: str | None, candidates: list[di
     Chunks candidates into groups of BATCH_SIZE and publishes each group
     to candidate_shortlisted. Returns total number of batches published.
     """
-    channel.queue_declare(queue=QUEUE_SHORTLISTED, durable=True)
+    dlq_name = f"{QUEUE_SHORTLISTED}.dlq"
+    channel.queue_declare(queue=dlq_name, durable=True)
+    channel.queue_declare(
+        queue=QUEUE_SHORTLISTED, 
+        durable=True,
+        arguments={
+            "x-dead-letter-exchange": "",
+            "x-dead-letter-routing-key": dlq_name
+        }
+    )
 
     total_batches = math.ceil(len(candidates) / BATCH_SIZE)
     for i in range(total_batches):
@@ -229,29 +352,36 @@ def process_message(ch, method, properties, body):
     pm_id = payload.get("pm_id")
     excluded_candidate_ids = payload.get("excluded_candidate_ids")  # None for fresh runs
 
-    print(f"[W1] Received trigger for job {job_id} (pm_id={pm_id}, retrigger={bool(excluded_candidate_ids)})")
+    print(f"[W1] Received trigger for job {job_id} (pm_id={pm_id}, retrigger={bool(excluded_candidate_ids)})", flush=True)
 
     db = SessionLocal()
     try:
+        # IMMEDIATELY set status to running so UI knows it started
+        db.execute(
+            text("UPDATE job_requests SET matching_status = 'running', matching_started_at = NOW() WHERE id = :job_id"),
+            {"job_id": job_id}
+        )
+        db.commit()
+
         candidates, top_k = get_top_candidates(db, job_id, excluded_candidate_ids)
         
         if not candidates:
-            print(f"[W1] No (new) candidates found for job {job_id} — ACKing and skipping.")
+            print(f"[W1] No (new) candidates found for job {job_id} — ACKing and skipping.", flush=True)
             db.execute(text("UPDATE job_requests SET matching_status = 'completed', batches_total = 0, batches_completed = 0 WHERE id = :job_id"), {"job_id": job_id})
             db.commit()
             ch.basic_ack(delivery_tag=method.delivery_tag)
             return
 
-        # Set matching_status=running and record total batches BEFORE publishing
+        # Update total batches now that we know how many candidates there are
         total_batches = math.ceil(len(candidates) / BATCH_SIZE)
         db.execute(
-            text("UPDATE job_requests SET matching_status = 'running', batches_total = :total, batches_completed = 0, matching_started_at = NOW() WHERE id = :job_id"),
+            text("UPDATE job_requests SET batches_total = :total, batches_completed = 0 WHERE id = :job_id"),
             {"total": total_batches, "job_id": job_id}
         )
         db.commit()
 
         publish_batches(ch, job_id, pm_id, candidates)
-        print(f"[W1] Done — published {total_batches} batch(es) for job {job_id} (Total candidates: {len(candidates)})")
+        print(f"[W1] Done — published {total_batches} batch(es) for job {job_id} (Total candidates: {len(candidates)})", flush=True)
         ch.basic_ack(delivery_tag=method.delivery_tag)
 
     except Exception as e:
@@ -263,8 +393,10 @@ def process_message(ch, method, properties, body):
 
 
 def main():
-    print("[W1] embedding_filter_worker starting...")
+    print("[W1] embedding_filter_worker starting...", flush=True)
     parameters = pika.URLParameters(RABBITMQ_URL)
+    # Disable heartbeats so heavy CPU tasks (BGE reranking) don't cause connection drops
+    parameters.heartbeat = 0
 
     for attempt in range(15):
         try:
@@ -278,7 +410,20 @@ def main():
         return
 
     channel = connection.channel()
-    channel.queue_declare(queue=QUEUE_EVALUATION, durable=True)
+    
+    # Declare Dead Letter Queue (DLQ)
+    dlq_name = f"{QUEUE_EVALUATION}.dlq"
+    channel.queue_declare(queue=dlq_name, durable=True)
+    
+    # Declare main queue and route dead letters to DLQ
+    channel.queue_declare(
+        queue=QUEUE_EVALUATION, 
+        durable=True,
+        arguments={
+            "x-dead-letter-exchange": "",
+            "x-dead-letter-routing-key": dlq_name
+        }
+    )
     channel.basic_qos(prefetch_count=1)
     channel.basic_consume(queue=QUEUE_EVALUATION, on_message_callback=process_message)
 

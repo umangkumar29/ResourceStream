@@ -20,34 +20,48 @@ QUEUE_EVALUATION = "candidate_evaluation"
 
 
 class RabbitMQPublisher:
-    def _get_connection(self) -> pika.BlockingConnection:
-        params = pika.URLParameters(settings.RABBITMQ_URL)
-        return pika.BlockingConnection(params)
+    def __init__(self):
+        self._connection = None
+        self._channel = None
 
     @retry(stop=stop_after_attempt(3), wait=wait_exponential(multiplier=1, min=1, max=5))
     def publish_match_trigger(self, job_id: str, pm_id: str | None) -> None:
         """
         Publishes a single lightweight trigger message to the candidate_evaluation queue.
-        Worker 1 (embedding_filter_worker) will consume this and do the pgvector HNSW search.
-        Message is persistent so it survives broker restarts.
+        Opens a fresh connection per request to prevent pika BlockingConnection 
+        from timing out due to missed heartbeats in an async FastAPI environment.
         """
-        connection = self._get_connection()
-        channel = connection.channel()
-
-        # Ensure the queue exists and is durable (survives broker restart)
-        channel.queue_declare(queue=QUEUE_EVALUATION, durable=True)
-
-        message = json.dumps({"job_id": job_id, "pm_id": pm_id})
-
-        channel.basic_publish(
-            exchange="",
-            routing_key=QUEUE_EVALUATION,
-            body=message,
-            properties=pika.BasicProperties(
-                delivery_mode=pika.DeliveryMode.Persistent,  # survive broker restarts
-            ),
-        )
-        connection.close()
+        connection = None
+        try:
+            params = pika.URLParameters(settings.RABBITMQ_URL)
+            connection = pika.BlockingConnection(params)
+            channel = connection.channel()
+            
+            # Ensure the queue and DLQ exist
+            dlq_name = f"{QUEUE_EVALUATION}.dlq"
+            channel.queue_declare(queue=dlq_name, durable=True)
+            channel.queue_declare(
+                queue=QUEUE_EVALUATION, 
+                durable=True,
+                arguments={
+                    "x-dead-letter-exchange": "",
+                    "x-dead-letter-routing-key": dlq_name
+                }
+            )
+            
+            message = json.dumps({"job_id": job_id, "pm_id": pm_id})
+            
+            channel.basic_publish(
+                exchange="",
+                routing_key=QUEUE_EVALUATION,
+                body=message,
+                properties=pika.BasicProperties(
+                    delivery_mode=pika.DeliveryMode.Persistent,
+                ),
+            )
+        finally:
+            if connection and not connection.is_closed:
+                connection.close()
 
 
 rabbitmq_publisher = RabbitMQPublisher()

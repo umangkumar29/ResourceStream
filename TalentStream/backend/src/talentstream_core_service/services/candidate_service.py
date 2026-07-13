@@ -34,7 +34,7 @@ class CandidateService:
                 detail={
                     "error": "DUPLICATE_CANDIDATE",
                     "message": f"This exact resume file was already uploaded for {duplicate_by_hash.name}.",
-                    "existing_candidate_id": str(duplicate_candidate.id) if 'duplicate_candidate' in locals() else str(duplicate_by_hash.id),
+                    "existing_candidate_id": str(duplicate_by_hash.id),
                     "email": duplicate_by_hash.email,
                     "phone": duplicate_by_hash.phone,
                     "name": duplicate_by_hash.name

@@ -1,119 +1,88 @@
-import uuid
+"""
+RAG Engine V2 — Async Matching Dispatcher
+
+This module is now a THIN WRAPPER that delegates all heavy lifting to the
+RabbitMQ worker pipeline (W1 → W2). The synchronous pipeline has been removed
+to eliminate the duplicate logic that previously existed between this file
+and the workers.
+
+Architecture:
+  API call → rag_engine.trigger() → RabbitMQ publisher → W1 (Hybrid RRF + BGE) → W2 (LLM Evaluation)
+
+The RAGEngine class is kept for backward compatibility with any code that
+imports `from ...rag_engine import rag_engine`.
+"""
+
+import logging
 from sqlalchemy.orm import Session
 from sqlalchemy import text
-from talentstream_core_service.db.models import Candidate, JobRequest, JobMatch, MatchStatus
-from talentstream_core_service.services.llm.openai import OpenAILLM
-from talentstream_core_service.services.embeddings.openai import OpenAIEmbeddings
-from talentstream_core_service.configs.config import settings
+from talentstream_core_service.db.models import JobRequest
+from talentstream_core_service.services.rabbitmq_publisher import rabbitmq_publisher
+
+logger = logging.getLogger(__name__)
 
 
 class RAGEngine:
     """
-    Fallback synchronous matching pipeline.
-    Uses CandidateChunk table and Blended Scoring logic.
+    V2 Matching Engine — delegates to RabbitMQ workers for async processing.
+
+    All matching logic (Hybrid RRF, BGE Cross-Encoder, Chunk-Type Weighting,
+    Structured LLM Explanation) now lives exclusively in:
+      - worker/embedding_filter_worker.py  (W1: Search + Rerank)
+      - worker/llm_evaluation_worker.py    (W2: LLM Evaluation + DB Persist)
     """
 
-    def run(self, job_id: str, db: Session) -> list[dict]:
-        # ── Fetch the job request ─────────────────────────────────────────────
-        job: JobRequest | None = db.query(JobRequest).filter(JobRequest.id == job_id).first()
+    def trigger(self, job_id: str, db: Session) -> dict:
+        """
+        Publishes a match trigger to RabbitMQ and returns immediately.
+        The workers handle the heavy lifting asynchronously.
+
+        Args:
+            job_id: UUID string of the JobRequest to match against.
+            db: Active SQLAlchemy session (used only to verify the job exists).
+
+        Returns:
+            Dict with status and job_id for the caller.
+        """
+        # Verify the job exists and has an embedding
+        job: JobRequest | None = db.query(JobRequest).filter(
+            JobRequest.id == job_id
+        ).first()
         if not job:
             raise ValueError(f"Job request {job_id} not found.")
+        if not job.embedding:
+            raise ValueError(f"Job request {job_id} has no embedding. Cannot match.")
 
-        llm = OpenAILLM()
-        embeddings_service = OpenAIEmbeddings()
+        logger.info(f"[RAGEngine] Dispatching match for job_id={job_id} to RabbitMQ")
 
-        # ── Stage 1: Vector similarity (cosine) across chunks ─────────────────
-        jd_embedding = embeddings_service.get_embedding(job.description)
+        # Publish to RabbitMQ — W1 picks it up within milliseconds
+        rabbitmq_publisher.publish_match_trigger(
+            job_id=str(job.id),
+            pm_id=str(job.project_manager_id) if job.project_manager_id else None,
+        )
 
-        rows = db.execute(
-            text("""
-                SELECT
-                    c.id::text AS candidate_id,
-                    c.resume_json,
-                    c.name,
-                    c.skills,
-                    1 - (cc.embedding <=> CAST(:embedding AS vector)) AS chunk_similarity
-                FROM candidates c
-                JOIN candidate_chunks cc ON c.id = cc.candidate_id
-                WHERE c.status = 'bench'
-            """),
-            {"embedding": str(jd_embedding)}
-        ).fetchall()
+        return {
+            "status": "queued",
+            "job_id": str(job.id),
+            "message": "Match job dispatched to async workers.",
+        }
 
-        if not rows:
-            return []
+    def run(self, job_id: str, db: Session) -> list[dict]:
+        """
+        Backward-compatible entry point. Previously ran the full synchronous
+        pipeline; now delegates to trigger() and returns an empty list.
 
-        # ── BLENDED SCORING ALGORITHM ──
-        candidate_data = {}
-        for r in rows:
-            cid = r.candidate_id
-            if cid not in candidate_data:
-                candidate_data[cid] = {
-                    "scores": [],
-                    "name": r.name,
-                    "skills": r.skills,
-                    "id": cid
-                }
-            candidate_data[cid]["scores"].append(float(r.chunk_similarity))
-
-        blended_results = []
-        for cid, data in candidate_data.items():
-            scores = sorted(data["scores"], reverse=True)
-            top_1 = scores[0]
-            top_3 = scores[:3]
-            avg_top_3 = sum(top_3) / len(top_3)
-            blended_score = (0.7 * top_1) + (0.3 * avg_top_3)
-            blended_results.append({
-                "candidate": data,
-                "score": blended_score
-            })
-
-        blended_results.sort(key=lambda x: x["score"], reverse=True)
-        top_candidates = blended_results[:settings.RAG_TOP_K]
-
-        # ── Stage 3: LLM reasoning + persist matches ──────────────────────────
-        results = []
-        for rank, match_data in enumerate(top_candidates):
-            candidate = match_data["candidate"]
-            # Scale score to 0-100 for UI, ensuring it drops by rank slightly if scores are too close
-            score = round(max(0.0, (match_data["score"] * 100) - rank), 2)
-            
-            justification = llm.generate_match_justification(
-                job_description=job.description,
-                resume_text=candidate["skills"] or "No resume details available."
-            )
-
-            # Upsert job_match record
-            existing = (
-                db.query(JobMatch)
-                .filter(JobMatch.job_id == job.id, JobMatch.candidate_id == candidate["id"])
-                .first()
-            )
-            if existing:
-                existing.match_score = score
-                existing.ai_justification = justification
-                existing.status = MatchStatus.pending
-            else:
-                db.add(
-                    JobMatch(
-                        id=uuid.uuid4(),
-                        job_id=job.id,
-                        candidate_id=candidate["id"],
-                        match_score=score,
-                        ai_justification=justification,
-                        status=MatchStatus.pending,
-                    )
-                )
-
-            results.append({
-                "candidate_id": str(candidate["id"]),
-                "candidate_name": candidate["name"],
-                "match_score": score,
-                "ai_justification": justification,
-            })
-
-        db.commit()
-        return results
+        Callers should migrate to trigger() and poll GET /jobs/{id}/results
+        for incremental results instead of expecting a synchronous response.
+        """
+        logger.warning(
+            f"[RAGEngine] rag_engine.run() called for job_id={job_id}. "
+            "This is now async — dispatching to RabbitMQ workers."
+        )
+        self.trigger(job_id, db)
+        # Return empty list since results will arrive asynchronously via workers
+        return []
 
 
+# Module-level singleton — imported by routers and webhooks
 rag_engine = RAGEngine()

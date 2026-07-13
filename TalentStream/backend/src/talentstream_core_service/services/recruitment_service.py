@@ -5,7 +5,6 @@ from datetime import datetime
 from ..repositories.job_repository import job_repo
 from ..repositories.candidate_repository import candidate_repo
 from ..db.models.models import JobStatus, MatchStatus
-from ..services.ranking.rag_engine import rag_engine
 
 class RecruitmentService:
     @staticmethod

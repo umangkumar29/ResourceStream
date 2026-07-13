@@ -23,11 +23,14 @@ import json
 import time
 import uuid
 import pika
+import concurrent.futures
 from dotenv import load_dotenv
 from openai import OpenAI
+from pydantic import BaseModel, Field
 from tenacity import retry, stop_after_attempt, wait_exponential
 from sqlalchemy import create_engine, text
 from sqlalchemy.orm import sessionmaker, Session
+from langsmith import traceable
 
 load_dotenv()
 
@@ -51,114 +54,122 @@ _client = OpenAI(
 
 # ── LLM Evaluation ─────────────────────────────────────────────────────────────
 
-SYSTEM_PROMPT = """You are an expert technical recruiter. Your task is to evaluate candidates 
-against a job description and return structured evaluation results.
+class MatchExplanation(BaseModel):
+    """Strict schema for the AI to return structured evidence of the match."""
+    matched_skills: list[str] = Field(
+        description="List of specific skills from the JD that the candidate possesses."
+    )
+    matched_experience: list[str] = Field(
+        description="Bullet points of past roles or projects that align perfectly with the JD."
+    )
+    notable_gaps: list[str] = Field(
+        description="Crucial skills or requirements from the JD that are missing from the resume."
+    )
+    ai_summary: str = Field(
+        description="A 1-2 sentence final verdict on why this candidate is or isn't a fit."
+    )
+    match_percentage: int = Field(
+        description="A final matching score from 0 to 100 representing how well the candidate fits the job description."
+    )
 
-You will receive a JD and a list of candidates with their resume text and similarity scores.
-Return ONLY a valid JSON array (no markdown, no explanation) where each element has:
-{
-  "candidate_id": "uuid string",
-  "match_score": integer 0-100,
-  "verdict": "Strong Match" | "Partial Match" | "No Match",
-  "skill_alignment": {
-    "matched": ["skill1", "skill2"],
-    "missing": ["skill3", "skill4"]
-  },
-  "experience_relevance": "1-2 sentence assessment of experience fit",
-  "findings": ["factual bullet 1 from resume", "factual bullet 2", "factual bullet 3"],
-  "overall_summary": "2-3 sentence hiring recommendation"
-}
-Be specific and factual. Base findings on actual resume content."""
+SYSTEM_PROMPT = """You are an expert technical recruiter. Your task is to evaluate a candidate 
+against a job description and extract structured evidence for why they are a match (or not).
+You must also provide a final `match_percentage` from 0 to 100.
+Be extremely factual. Only cite skills and experience that actually exist in the candidate's profile."""
 
 
+@traceable(name="W2_Generate_Structured_Explanation", run_type="llm")
 @retry(stop=stop_after_attempt(3), wait=wait_exponential(multiplier=1, min=2, max=10))
-def evaluate_batch_with_llm(jd_text: str, candidates_data: list[dict]) -> list[dict]:
+def evaluate_candidate_with_llm(jd_text: str, c: dict) -> dict:
     """
-    Sends ONE LLM API call to evaluate a batch of candidates against the JD.
-    Returns a list of structured evaluation dicts.
-    candidates_data: [{candidate_id, name, resume_json, similarity_score}]
-    resume_json is a structured dict with keys: name, email, skills, total_experience_years,
-    professional_summary, work_experience etc. — parsed by the resume upload service.
+    Sends ONE LLM API call to evaluate a single candidate against the JD using Structured Outputs.
+    Returns the parsed Pydantic dictionary.
     """
-    candidates_section = ""
-    for idx, c in enumerate(candidates_data):
-        rj = c.get("resume_json") or {}
-        # Pull structured fields — far richer signal than raw text
-        skills = rj.get("skills", []) or []
-        skills_str = ", ".join(skills) if isinstance(skills, list) else str(skills)
-        experience_years = rj.get("total_experience_years", "Unknown")
-        summary = rj.get("professional_summary", "") or ""
-        work_exp = rj.get("work_experience", []) or []
-        work_lines = ""
-        for w in work_exp[:4]:  # limit to last 4 roles
-            title = w.get("title", "") if isinstance(w, dict) else ""
-            company = w.get("company", "") if isinstance(w, dict) else ""
-            duration = w.get("duration", "") if isinstance(w, dict) else ""
-            work_lines += f"  - {title} at {company} ({duration})\n"
+    rj = c.get("resume_json") or {}
+    if isinstance(rj, str):
+        import json
+        try:
+            rj = json.loads(rj)
+        except Exception:
+            rj = {}
+            
+    skills = rj.get("skills", []) or []
+    skills_str = ", ".join(skills) if isinstance(skills, list) else str(skills)
+    experience_years = rj.get("total_experience_years", "Unknown")
+    summary = rj.get("professional_summary", "") or ""
+    
+    work_exp = rj.get("work_experience", []) or []
+    work_lines = ""
+    for w in work_exp[:4]:
+        title = w.get("title", "") if isinstance(w, dict) else ""
+        company = w.get("company", "") if isinstance(w, dict) else ""
+        duration = w.get("duration", "") if isinstance(w, dict) else ""
+        work_lines += f"  - {title} at {company} ({duration})\n"
 
-        candidates_section += (
-            f"\n--- Candidate {idx + 1} ---\n"
-            f"ID: {c['candidate_id']}\n"
-            f"Name: {c['name']}\n"
-            f"Vector Similarity: {c['similarity_score']}\n"
-            f"Total Experience: {experience_years} years\n"
-            f"Skills: {skills_str}\n"
-            f"Summary: {summary[:500]}\n"
-            f"Work History:\n{work_lines}"
-        )
+    candidate_section = (
+        f"Vector Similarity: {c['similarity_score']}\n"
+        f"Total Experience: {experience_years} years\n"
+        f"Skills: {skills_str}\n"
+        f"Summary: {summary[:500]}\n"
+        f"Work History:\n{work_lines}"
+    )
 
     user_prompt = (
         f"### Job Description\n{jd_text[:3000]}\n\n"
-        f"### Candidates to Evaluate\n{candidates_section}\n\n"
-        "Return the JSON array now:"
+        f"### Candidate Profile\n{candidate_section}\n\n"
+        "Extract the structured match explanation."
     )
 
-    response = _client.chat.completions.create(
+    # Use the beta parse endpoint to guarantee JSON schema compliance
+    response = _client.beta.chat.completions.parse(
         model=OPENAI_CHAT_MODEL,
         messages=[
             {"role": "system", "content": SYSTEM_PROMPT},
             {"role": "user", "content": user_prompt},
         ],
         temperature=0.1,
-        max_tokens=2000,
+        max_tokens=1000,
+        response_format=MatchExplanation,
     )
 
-    raw = response.choices[0].message.content.strip()
-    # Strip markdown code fences if the LLM wraps it anyway
-    if raw.startswith("```"):
-        raw = raw.split("```")[1]
-        if raw.startswith("json"):
-            raw = raw[4:]
-    return json.loads(raw)
+    explanation = response.choices[0].message.parsed
+    if hasattr(explanation, 'model_dump'):
+        return explanation.model_dump()
+    return explanation.dict()
 
 
-def upsert_match(db: Session, job_id: str, candidate_id: str, evaluation: dict) -> None:
+def upsert_match(db: Session, job_id: str, candidate_id: str, score: float, explanation: dict) -> None:
     """
     Upserts a single match result into job_matches.
-    ON CONFLICT DO UPDATE makes this safe to retry without creating duplicates.
+    Writes to the new `structured_explanation` JSONB column.
     """
     db.execute(
         text("""
-            INSERT INTO job_matches (id, job_id, candidate_id, match_score, ai_justification, status, created_at)
-            VALUES (:id, :job_id, :candidate_id, :match_score, :ai_justification, 'pending', NOW())
+            INSERT INTO job_matches (
+                id, job_id, candidate_id, match_score, cosine_score, 
+                ai_justification, structured_explanation, status, processing_status, created_at
+            )
+            VALUES (
+                :id, :job_id, :candidate_id, :match_score, :cosine_score,
+                :ai_justification, CAST(:structured_explanation AS jsonb), 'pending', 'evaluated', NOW()
+            )
             ON CONFLICT (job_id, candidate_id)
             DO UPDATE SET
-                match_score      = EXCLUDED.match_score,
-                ai_justification = EXCLUDED.ai_justification,
-                status           = 'pending'
+                match_score            = EXCLUDED.match_score,
+                cosine_score           = EXCLUDED.cosine_score,
+                ai_justification       = EXCLUDED.ai_justification,
+                structured_explanation = EXCLUDED.structured_explanation,
+                status                 = 'pending',
+                processing_status      = 'evaluated'
         """),
         {
             "id": str(uuid.uuid4()),
             "job_id": job_id,
             "candidate_id": candidate_id,
-            "match_score": evaluation.get("match_score"),
-            "ai_justification": json.dumps({
-                "verdict": evaluation.get("verdict"),
-                "skill_alignment": evaluation.get("skill_alignment", {}),
-                "experience_relevance": evaluation.get("experience_relevance", ""),
-                "findings": evaluation.get("findings", []),
-                "overall_summary": evaluation.get("overall_summary", ""),
-            }),
+            "match_score": score,  # Use the display score
+            "cosine_score": score / 100.0, # Approximate back to 0-1 range for the raw column
+            "ai_justification": explanation.get("ai_summary", ""),
+            "structured_explanation": json.dumps(explanation),
         }
     )
 
@@ -187,43 +198,65 @@ def process_message(ch, method, properties, body):
 
         jd_text = job_row.description
 
-        # ── 2. Fetch all resume texts (1 query) ──────────────────────────────
+        # ── 2. Fetch all resume texts (1 parameterized query — no SQL injection) ─
         candidate_ids = [c["candidate_id"] for c in candidate_refs]
         similarity_map = {c["candidate_id"]: c["similarity_score"] for c in candidate_refs}
 
-        placeholders = ", ".join([f"'{cid}'" for cid in candidate_ids])
         candidate_rows = db.execute(
-            text(f"""
-                SELECT id::text AS id, name, resume_json
-                FROM candidates
-                WHERE id::text IN ({placeholders})
-            """)
+            text("SELECT id::text AS id, name, resume_json FROM candidates WHERE id = ANY(CAST(:ids AS uuid[]))"),
+            {"ids": candidate_ids}
         ).fetchall()
 
-        candidates_data = [
-            {
+        candidates_data = []
+        for r in candidate_rows:
+            raw_rj = r.resume_json or {}
+            if isinstance(raw_rj, str):
+                try:
+                    raw_rj = json.loads(raw_rj)
+                except Exception:
+                    raw_rj = {}
+            cand_data = raw_rj.get("candidate", raw_rj) if isinstance(raw_rj, dict) else {}
+            
+            candidates_data.append({
                 "candidate_id": str(r.id),
                 "name": r.name,
-                # resume_json is already parsed JSONB from PostgreSQL — use directly
-                "resume_json": (r.resume_json or {}).get("candidate", r.resume_json or {}),
+                "resume_json": cand_data,
                 "similarity_score": similarity_map.get(str(r.id), 0.0),
+            })
+
+        # ── 3. LLM evaluation (Concurrent ThreadPool) ────────────────
+        print(f"[W2] Concurrently evaluating {len(candidates_data)} candidates for batch {batch_index + 1}...")
+        
+        # We process the LLM calls concurrently
+        evaluations = []
+        max_workers = min(10, len(candidates_data)) if candidates_data else 1
+        with concurrent.futures.ThreadPoolExecutor(max_workers=max_workers) as executor:
+            future_to_cand = {
+                executor.submit(evaluate_candidate_with_llm, jd_text, c): c
+                for c in candidates_data
             }
-            for r in candidate_rows
-        ]
+            
+            for future in concurrent.futures.as_completed(future_to_cand):
+                c = future_to_cand[future]
+                try:
+                    explanation = future.result()
+                    evaluations.append((c, explanation))
+                except Exception as e:
+                    print(f"[W2] Failed to evaluate candidate {c['candidate_id']}: {e}")
 
-        # ── 3. LLM evaluation (1 API call for the whole batch) ────────────────
-        print(f"[W2] Calling LLM for batch {batch_index + 1}...")
-        evaluations = evaluate_batch_with_llm(jd_text, candidates_data)
-
-        # ── 4. Upsert all results (filtering out < 50% score) ─────────────────────────────────────────────
+        # ── 4. Upsert all results ─────────────────────────────────────────────
         upserted_count = 0
-        for evaluation in evaluations:
-            cid = evaluation.get("candidate_id")
-            score = float(evaluation.get("match_score", 0))
-            if not cid or score < 50:
-                print(f"[W2] Discarding candidate {cid} due to low score: {score}%")
-                continue
-            upsert_match(db, job_id, cid, evaluation)
+        for rank, (c, explanation) in enumerate(evaluations):
+            cid = c["candidate_id"]
+            
+            # Use the LLM's generated percentage score
+            llm_score = float(explanation.get("match_percentage", 50))
+            
+            # Tiny rank penalty ensures that if the LLM gives multiple candidates the exact same score (e.g., 85%),
+            # the UI will still sort them according to the highly accurate Jina Reranker's original order.
+            display_score = round(max(0.0, llm_score - (rank * 0.01)), 2)
+            
+            upsert_match(db, job_id, cid, display_score, explanation)
             upserted_count += 1
 
         db.commit()
@@ -283,8 +316,10 @@ def process_message(ch, method, properties, body):
 
 
 def main():
-    print("[W2] llm_evaluation_worker starting...")
+    print("[W2] llm_evaluation_worker starting...", flush=True)
     parameters = pika.URLParameters(RABBITMQ_URL)
+    # Disable heartbeats so long LLM calls don't cause connection drops
+    parameters.heartbeat = 0
 
     for attempt in range(15):
         try:
@@ -298,7 +333,20 @@ def main():
         return
 
     channel = connection.channel()
-    channel.queue_declare(queue=QUEUE_SHORTLISTED, durable=True)
+    
+    # Declare Dead Letter Queue (DLQ)
+    dlq_name = f"{QUEUE_SHORTLISTED}.dlq"
+    channel.queue_declare(queue=dlq_name, durable=True)
+    
+    # Declare main queue and route dead letters to DLQ
+    channel.queue_declare(
+        queue=QUEUE_SHORTLISTED, 
+        durable=True,
+        arguments={
+            "x-dead-letter-exchange": "",
+            "x-dead-letter-routing-key": dlq_name
+        }
+    )
     channel.basic_qos(prefetch_count=1)  # Fair dispatch — each worker holds 1 message
     channel.basic_consume(queue=QUEUE_SHORTLISTED, on_message_callback=process_message)
 

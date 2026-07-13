@@ -38,6 +38,27 @@ class ResumeParseResponse(BaseModel):
     candidate: CandidateExtract
 
 
+# --- STRUCTURED MATCH EXPLANATION SCHEMA ---
+class MatchExplanation(BaseModel):
+    """Structured, evidence-backed explanation for why a candidate was matched."""
+    matched_skills: List[str] = Field(
+        default_factory=list,
+        description="Exact skills from the candidate that match the JD requirements."
+    )
+    matched_experience: List[str] = Field(
+        default_factory=list,
+        description="Specific experience bullet points from the resume that align with the JD."
+    )
+    notable_gaps: List[str] = Field(
+        default_factory=list,
+        description="Skills or experience mentioned in the JD that the candidate appears to lack."
+    )
+    ai_summary: str = Field(
+        default="",
+        description="One concise sentence summarizing the overall match quality."
+    )
+
+
 class OpenAILLM(BaseLLM):
     """
     OpenAI implementation for Generative LLM tasks.
@@ -60,6 +81,7 @@ class OpenAILLM(BaseLLM):
     def generate_match_justification(
         self, job_description: str, resume_text: str
     ) -> str:
+        """Legacy single-string justification, kept for backward compatibility."""
         if not self._client:
             return "Mock justification: OpenAI API key not configured."
 
@@ -84,6 +106,49 @@ class OpenAILLM(BaseLLM):
             max_tokens=256,
         )
         return response.choices[0].message.content.strip()
+
+    @traceable(name="Generate Structured Match Explanation", run_type="chain")
+    @retry(
+        stop=stop_after_attempt(3), wait=wait_exponential(multiplier=1, min=2, max=10)
+    )
+    def generate_structured_explanation(
+        self, job_description: str, candidate_resume_text: str
+    ) -> MatchExplanation:
+        """
+        Uses OpenAI with Pydantic structured outputs to extract a defensible,
+        evidence-backed explanation of why a candidate was matched to a job.
+        Returns a MatchExplanation object containing matched_skills, matched_experience,
+        notable_gaps, and an ai_summary. Fails loudly to trigger Tenacity retries.
+        """
+        if not self._client:
+            # Return a safe default if no API key is configured (e.g., dev/test mode)
+            return MatchExplanation(ai_summary="OpenAI API key not configured.")
+
+        prompt = (
+            f"### Job Description\n{job_description}\n\n"
+            f"### Candidate Resume\n{candidate_resume_text}\n\n"
+            "Analyse the candidate against the job description and return a JSON with:\n"
+            "- matched_skills: list of exact skills the candidate has that appear in the JD\n"
+            "- matched_experience: list of 1-line experience matches (role + tech + years)\n"
+            "- notable_gaps: list of things the JD requires that the candidate lacks\n"
+            "- ai_summary: one concise sentence summarising the overall match quality\n"
+            "Return ONLY the JSON object, no markdown."
+        )
+
+        response = self._client.chat.completions.create(
+            model=settings.OPENAI_CHAT_MODEL,
+            messages=[
+                {"role": "system", "content": "You are an expert technical recruiter. Respond only in JSON."},
+                {"role": "user", "content": prompt},
+            ],
+            response_format={"type": "json_object"},
+            temperature=0.1,
+        )
+
+        raw_json = json.loads(response.choices[0].message.content)
+        # Pydantic validation — if keys are missing or wrong types, ValidationError
+        # bubbles up and triggers the @retry decorator automatically
+        return MatchExplanation.model_validate(raw_json)
 
     @retry(
         stop=stop_after_attempt(3), wait=wait_exponential(multiplier=1, min=2, max=10)

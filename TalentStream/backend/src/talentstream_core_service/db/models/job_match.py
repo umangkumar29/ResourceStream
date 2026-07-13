@@ -2,7 +2,7 @@ import uuid
 import enum
 from datetime import datetime
 from sqlalchemy import Column, String, Text, Numeric, DateTime, ForeignKey, Enum as SAEnum
-from sqlalchemy.dialects.postgresql import UUID
+from sqlalchemy.dialects.postgresql import UUID, JSONB
 from talentstream_core_service.db.database import Base
 
 
@@ -47,6 +47,8 @@ class JobMatch(Base):
 
     # ── LLM output ────────────────────────────────────────────────────────────
     ai_justification = Column(Text, nullable=True)
+    # Structured evidence stored as JSON: {matched_skills, matched_experience, gaps, ai_summary}
+    structured_explanation = Column(JSONB, nullable=True)
 
     # ── Interview tracking (PM actions) ──────────────────────────────────────
     l1_status = Column(SAEnum(InterviewStatus, name="interview_status"), nullable=True)
