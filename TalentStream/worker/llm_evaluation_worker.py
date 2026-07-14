@@ -98,24 +98,20 @@ def evaluate_candidate_with_llm(jd_text: str, c: dict) -> dict:
     experience_years = rj.get("total_experience_years", "Unknown")
     summary = rj.get("professional_summary", "") or ""
     
-    work_exp = rj.get("work_experience", []) or []
-    work_lines = ""
-    for w in work_exp[:4]:
-        title = w.get("title", "") if isinstance(w, dict) else ""
-        company = w.get("company", "") if isinstance(w, dict) else ""
-        duration = w.get("duration", "") if isinstance(w, dict) else ""
-        work_lines += f"  - {title} at {company} ({duration})\n"
+    matched_chunks_text = c.get("matched_chunks_text", "")
 
     candidate_section = (
         f"Vector Similarity: {c['similarity_score']}\n"
         f"Total Experience: {experience_years} years\n"
         f"Skills: {skills_str}\n"
-        f"Summary: {summary[:500]}\n"
-        f"Work History:\n{work_lines}"
+        f"Summary: {summary}\n\n"
+        f"--- HIGHLY RELEVANT RETRIEVED EXPERIENCE (from matching engine) ---\n"
+        f"{matched_chunks_text}\n"
+        f"-------------------------------------------------------------------\n"
     )
 
     user_prompt = (
-        f"### Job Description\n{jd_text[:3000]}\n\n"
+        f"### Job Description\n{jd_text}\n\n"
         f"### Candidate Profile\n{candidate_section}\n\n"
         "Extract the structured match explanation."
     )
@@ -200,7 +196,8 @@ def process_message(ch, method, properties, body):
 
         # ── 2. Fetch all resume texts (1 parameterized query — no SQL injection) ─
         candidate_ids = [c["candidate_id"] for c in candidate_refs]
-        similarity_map = {c["candidate_id"]: c["similarity_score"] for c in candidate_refs}
+        similarity_map = {c["candidate_id"]: c.get("similarity_score", 0.0) for c in candidate_refs}
+        chunks_map = {c["candidate_id"]: c.get("matched_chunks_text", "") for c in candidate_refs}
 
         candidate_rows = db.execute(
             text("SELECT id::text AS id, name, resume_json FROM candidates WHERE id = ANY(CAST(:ids AS uuid[]))"),
@@ -222,6 +219,7 @@ def process_message(ch, method, properties, body):
                 "name": r.name,
                 "resume_json": cand_data,
                 "similarity_score": similarity_map.get(str(r.id), 0.0),
+                "matched_chunks_text": chunks_map.get(str(r.id), ""),
             })
 
         # ── 3. LLM evaluation (Concurrent ThreadPool) ────────────────

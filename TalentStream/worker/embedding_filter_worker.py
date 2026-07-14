@@ -153,9 +153,33 @@ def get_top_candidates(db: Session, job_id: str, excluded_candidate_ids: list[st
     fetch_limit = max(top_k * 5, 50)  # Always get at least 50 for candidate pool
 
     import re
-    # Extract meaningful words for OR-based BM25 search
-    words = [w for w in re.findall(r'\b[A-Za-z]{3,}\b', jd_text) if w.lower() not in {'and', 'the', 'for', 'with', 'this', 'that', 'are', 'you', 'will'}]
-    jd_keywords = " OR ".join(words[:30]) if words else "developer"
+    from collections import Counter
+    # Expanded stopwords to prevent BM25 from matching generic resume fluff
+    stopwords = {
+        'and', 'the', 'for', 'with', 'this', 'that', 'are', 'you', 'will', 'have', 'has', 'had',
+        'experience', 'work', 'team', 'skills', 'required', 'years', 'looking', 'role', 'job',
+        'candidate', 'strong', 'ability', 'knowledge', 'understanding', 'good', 'excellent',
+        'working', 'environment', 'business', 'development', 'management', 'support', 'design',
+        'build', 'create', 'using', 'including', 'must', 'should', 'can', 'may', 'plus', 'preferred',
+        'about', 'from', 'what', 'where', 'when', 'how', 'why', 'who', 'which', 'their', 'they', 'our',
+        'your', 'company', 'join', 'fast', 'growing', 'dynamic', 'highly', 'motivated',
+        'software', 'engineer', 'developer', 'application', 'system', 'project', 'technology',
+        'technical', 'professional', 'related', 'field', 'degree', 'computer', 'science', 'equivalent',
+        'proven', 'track', 'record', 'hands', 'best', 'practices', 'code', 'review', 'test', 'driven',
+        'integration', 'delivery', 'continuous', 'deployment', 'production', 'quality', 'assurance',
+        'ensure', 'maintain', 'improve', 'performance', 'scalable', 'secure', 'reliable', 'efficient',
+        'robust', 'complex', 'solutions', 'requirements', 'specifications', 'architecture',
+        'infrastructure', 'services', 'platform', 'framework', 'tools', 'technologies', 'stack',
+        'database', 'data', 'information', 'security', 'privacy', 'compliance', 'standards', 'policies',
+        'not', 'only', 'but', 'also', 'such', 'very', 'much', 'more', 'less', 'than', 'then',
+        'there', 'these', 'those', 'been', 'being', 'does', 'doing', 'done', 'did', 'make', 'made'
+    }
+
+    # Extract meaningful words for TF-based BM25 search
+    words = [w.lower() for w in re.findall(r'\b[A-Za-z]{2,}\b', jd_text) if w.lower() not in stopwords]
+    # Get the 12 most frequent meaningful terms in the JD
+    top_words = [word for word, count in Counter(words).most_common(12)]
+    jd_keywords = " OR ".join(top_words) if top_words else "developer"
 
     # Build exclusion clause dynamically
     exclusion_clause = ""
@@ -176,6 +200,7 @@ def get_top_candidates(db: Session, job_id: str, excluded_candidate_ids: list[st
                 cc.id AS chunk_id,
                 cc.candidate_id,
                 cc.chunk_type,
+                cc.chunk_text,
                 1 - (cc.embedding <=> CAST(:jd_vector AS vector)) AS cosine_sim,
                 RANK() OVER (ORDER BY cc.embedding <=> CAST(:jd_vector AS vector)) AS vec_rank
             FROM candidate_chunks cc
@@ -187,6 +212,7 @@ def get_top_candidates(db: Session, job_id: str, excluded_candidate_ids: list[st
                 cc.id AS chunk_id,
                 cc.candidate_id,
                 cc.chunk_type,
+                cc.chunk_text,
                 RANK() OVER (
                     ORDER BY ts_rank(cc.tsv, websearch_to_tsquery('english', :jd_keywords)) DESC
                 ) AS kw_rank
@@ -199,6 +225,7 @@ def get_top_candidates(db: Session, job_id: str, excluded_candidate_ids: list[st
             SELECT
                 COALESCE(v.candidate_id, k.candidate_id) AS candidate_id,
                 COALESCE(v.chunk_type, k.chunk_type) AS chunk_type,
+                COALESCE(v.chunk_text, k.chunk_text) AS chunk_text,
                 (1.0 / (60 + COALESCE(v.vec_rank, 1000))) +
                 (1.0 / (60 + COALESCE(k.kw_rank, 1000))) AS rrf_score,
                 v.cosine_sim
@@ -208,7 +235,7 @@ def get_top_candidates(db: Session, job_id: str, excluded_candidate_ids: list[st
         ),
         best_per_chunk_type AS (
             SELECT DISTINCT ON (candidate_id, chunk_type) 
-                   candidate_id, chunk_type, rrf_score, cosine_sim
+                   candidate_id, chunk_type, chunk_text, rrf_score, cosine_sim
             FROM fused
             ORDER BY candidate_id, chunk_type, rrf_score DESC
         ),
@@ -249,11 +276,12 @@ def get_top_candidates(db: Session, job_id: str, excluded_candidate_ids: list[st
                            WHEN chunk_type = 'professional_summary' THEN 0.05
                            ELSE 0.05
                        END
-                   ) AS final_cosine_score
+                   ) AS final_cosine_score,
+                   STRING_AGG(chunk_type || ': ' || chunk_text, '\n\n---\n\n') AS matched_chunks_text
             FROM best_per_chunk_type
             GROUP BY candidate_id
         )
-        SELECT w.candidate_id::text, w.final_rrf_score, w.final_cosine_score, c.resume_json
+        SELECT w.candidate_id::text, w.final_rrf_score, w.final_cosine_score, c.resume_json, w.matched_chunks_text
         FROM weighted_candidates w
         JOIN candidates c ON c.id = w.candidate_id
         ORDER BY w.final_rrf_score DESC
@@ -269,7 +297,8 @@ def get_top_candidates(db: Session, job_id: str, excluded_candidate_ids: list[st
         best_candidates.append({
             "candidate_id": row.candidate_id,
             "resume_json": row.resume_json,
-            "similarity_score": float(row.final_cosine_score)
+            "similarity_score": float(row.final_cosine_score),
+            "matched_chunks_text": row.matched_chunks_text
         })
     
     # Optional Stage 2: Hosted API Reranking

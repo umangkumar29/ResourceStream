@@ -7,6 +7,9 @@ import LoginPage from './app/components/login/LoginPage';
 import { Loader2 } from 'lucide-react';
 import { motion } from 'framer-motion';
 
+// landing page
+import LandingPage from './app/components/landing/LandingPage';
+
 // core layout
 import { TalentStreamLayout } from './components/talentstream/TalentStreamLayout';
 
@@ -63,6 +66,7 @@ function AppContent() {
   return (
     <div className="min-h-screen bg-talentstream-bg text-talentstream-on-surface transition-colors duration-300 font-inter antialiased selection:bg-talentstream-primary/20">
       <Routes>
+        <Route path="/" element={<LandingPage />} />
         <Route path="/login" element={<LoginWithRedirect />} />
         <Route path="/*" element={<AppShell />} />
       </Routes>
