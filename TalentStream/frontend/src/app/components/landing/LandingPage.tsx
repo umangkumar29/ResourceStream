@@ -1,5 +1,6 @@
 import React, { useEffect, useState, useRef } from 'react';
-import { useNavigate } from 'react-router-dom';
+import { useNavigate, Link } from 'react-router-dom';
+import Footer from './Footer';
 import './LandingPage.css';
 
 export default function LandingPage() {
@@ -124,11 +125,16 @@ export default function LandingPage() {
                             <span className="font-display font-bold text-xl tracking-tight text-slate-50">ResourceStream</span>
                         </div>
                         <div className="hidden md:flex items-center space-x-8">
-                            <a href="#features" className="text-sm font-medium text-gray-400 hover:text-slate-50 transition-colors">Features</a>
-                            <a href="#how-it-works" className="text-sm font-medium text-gray-400 hover:text-slate-50 transition-colors">How it Works</a>
-                            <a href="#stats" className="text-sm font-medium text-gray-400 hover:text-slate-50 transition-colors">Metrics</a>
+                            <a href="/#features" className="text-sm font-medium text-gray-400 hover:text-slate-50 transition-colors">Features</a>
+                            <a href="/#how-it-works" className="text-sm font-medium text-gray-400 hover:text-slate-50 transition-colors">How it Works</a>
+                            <a href="/#stats" className="text-sm font-medium text-gray-400 hover:text-slate-50 transition-colors">Metrics</a>
+                            <Link to="/why" className="text-sm font-bold text-slate-50 bg-sky-600 px-3 py-1 rounded transition-colors hover:bg-sky-500 shadow-[0_0_15px_rgba(14,165,233,0.3)]">Why ResourceStream?</Link>
+                            <a href="https://github.com/umangkumar29/TalentStream" target="_blank" rel="noopener noreferrer" className="flex items-center gap-2 text-sm font-medium text-gray-400 hover:text-slate-50 transition-colors group">
+                                <svg className="w-4 h-4 group-hover:scale-110 transition-transform" fill="currentColor" viewBox="0 0 24 24"><path d="M12 0C5.37 0 0 5.37 0 12c0 5.31 3.435 9.795 8.205 11.385.6.105.825-.255.825-.57 0-.285-.015-1.23-.015-2.28-3.315.72-4.02-1.425-4.02-1.425-.545-1.38-1.335-1.755-1.335-1.755-1.095-.75.09-.735.09-.735 1.215.09 1.86 1.26 1.86 1.26 1.08 1.845 2.835 1.305 3.525.99.105-.78.42-1.305.765-1.605-2.67-.3-5.46-1.335-5.46-5.925 0-1.305.465-2.385 1.23-3.225-.12-.3-.54-1.53.12-3.18 0 0 1-.315 3.3 1.23.96-.27 1.98-.405 3-.405s2.04.135 3 .405c2.295-1.56 3.3-1.23 3.3-1.23.66 1.65.24 2.88.12 3.18.78.84 1.23 1.92 1.23 3.225 0 4.605-2.805 5.625-5.475 5.925.435.375.81 1.095.81 2.22 0 1.605-.015 2.895-.015 3.3 0 .315.225.69.825.57A12.02 12.02 0 0024 12c0-6.63-5.37-12-12-12z" /></svg>
+                                GitHub
+                            </a>
                         </div>
-                        <div>
+                        <div className="flex items-center">
                             <button onClick={handleStartFreeTrial} className="bg-slate-50/10 hover:bg-slate-50/20 text-slate-50 px-5 py-2.5 rounded-full text-sm font-medium border border-slate-50/10 transition-all duration-300 hover:scale-105 active:scale-95">
                                 Login
                             </button>
@@ -158,16 +164,26 @@ export default function LandingPage() {
                 </p>
                 
                 <div ref={setHeroRef} className="hero-element flex flex-col sm:flex-row items-center justify-center gap-4 mb-20">
-                    <button onClick={handleStartFreeTrial} className="group relative w-full sm:w-auto px-8 py-4 rounded-full bg-sky-600 text-slate-50 font-semibold overflow-hidden transition-all hover:scale-105 active:scale-95 shadow-[0_0_30px_rgba(14,165,233,0.3)]">
+                    <button onClick={handleStartFreeTrial} className="group relative w-full sm:w-auto px-8 py-4 rounded-xl bg-sky-600 text-slate-50 font-semibold overflow-hidden transition-all hover:scale-105 active:scale-95 shadow-[0_0_30px_rgba(14,165,233,0.3)]">
                         <div className="absolute inset-0 bg-gradient-to-r from-sky-400 to-violet-500 opacity-0 group-hover:opacity-100 transition-opacity duration-300"></div>
                         <span className="relative z-10 flex items-center gap-2">
                             Start Matching Now
                             <svg className="w-4 h-4 group-hover:translate-x-1 transition-transform" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M14 5l7 7m0 0l-7 7m7-7H3"></path></svg>
                         </span>
                     </button>
-                    <button onClick={handleStartFreeTrial} className="w-full sm:w-auto px-8 py-4 rounded-full landing-glass-card hover:bg-slate-50/10 text-slate-50 font-semibold transition-all border border-slate-50/10 hover:border-slate-50/30">
-                        Read the Docs
-                    </button>
+                    <div 
+                        onClick={() => navigator.clipboard.writeText('docker run -p 3000:3000 resourcestream/engine')}
+                        className="w-full sm:w-auto px-6 py-4 rounded-xl bg-gray-900 border border-slate-50/10 font-mono text-sm flex items-center justify-between text-gray-300 gap-6 transition-all hover:border-slate-50/30 hover:bg-gray-800/80 cursor-pointer group shadow-lg"
+                        title="Copy to clipboard"
+                    >
+                        <span>
+                            <span className="text-gray-500 mr-3">{'>_'}</span>
+                            <span className="text-orange-400">docker</span> run -p 3000:3000 resourcestream/engine
+                        </span>
+                        <svg className="w-4 h-4 text-gray-500 group-hover:text-slate-50 opacity-0 group-hover:opacity-100 transition-all" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M8 16H6a2 2 0 01-2-2V6a2 2 0 012-2h8a2 2 0 012 2v2m-6 12h8a2 2 0 002-2v-8a2 2 0 00-2-2h-8a2 2 0 00-2 2v8a2 2 0 002 2z"></path>
+                        </svg>
+                    </div>
                 </div>
 
                 {/* Live Mockup UI Container */}
@@ -306,7 +322,114 @@ export default function LandingPage() {
                 </div>
             </section>
 
-            {/* Stats Section */}
+            {/* How it Works Section */}
+            <section id="how-it-works" className="py-32 relative z-10 border-t border-slate-50/5 bg-gray-950">
+                <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
+                    <div ref={setRevealRef} className="text-center mb-20 section-header">
+                        <h2 className="text-4xl md:text-5xl font-display font-bold mb-6 text-slate-50">How <span className="text-sky-400">ResourceStream</span> Works</h2>
+                        <p className="text-lg text-gray-400 max-w-2xl mx-auto">Monitor and control your entire matching pipeline through a single, elegant interface powered by real-time microservices.</p>
+                    </div>
+
+                    {/* Animated Match Pipeline */}
+                    <div ref={setRevealRef} className="relative mx-auto max-w-6xl rounded-3xl bg-gray-950/80 border border-slate-50/10 shadow-[0_0_60px_rgba(14,165,233,0.1)] p-6 sm:p-10 overflow-hidden font-inter">
+                        {/* Glowing Background Core */}
+                        <div className="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 w-[800px] h-[400px] bg-gradient-to-r from-sky-500/10 via-violet-500/10 to-green-500/10 blur-[100px] rounded-full pointer-events-none"></div>
+
+                        {/* Connecting Line (Desktop Only) */}
+                        <div className="absolute top-1/2 left-12 right-12 h-1 bg-gray-800/50 -translate-y-1/2 z-0 hidden lg:block rounded-full overflow-hidden border border-slate-50/5">
+                            <div className="h-full bg-gradient-to-r from-sky-500 via-violet-500 to-green-500 w-[200%] animate-scan opacity-50 relative pointer-events-none" style={{ animationDuration: '8s' }}></div>
+                        </div>
+
+                        <div className="grid grid-cols-1 lg:grid-cols-3 gap-8 lg:gap-12 relative z-10">
+                            {/* Step 1: Job Requisition Context */}
+                            <div className="bg-gray-900/60 backdrop-blur-md border border-slate-50/10 rounded-2xl p-8 transition-all duration-500 hover:-translate-y-2 hover:border-sky-500/50 hover:shadow-[0_0_30px_rgba(14,165,233,0.15)] group">
+                                <div className="w-14 h-14 rounded-2xl bg-sky-500/10 text-sky-400 flex items-center justify-center mb-6 border border-sky-500/20 group-hover:scale-110 transition-transform duration-300">
+                                    <svg className="w-7 h-7" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z"></path></svg>
+                                </div>
+                                <h3 className="text-xl font-bold text-slate-50 mb-3 tracking-tight">1. Ingest Job Reqs</h3>
+                                <p className="text-sm text-gray-400 mb-8 leading-relaxed">Instantly parses job descriptions to extract required skills, core technical stacks, and domain constraints into a machine-readable query context.</p>
+                                
+                                {/* Animated Mock UI */}
+                                <div className="space-y-3 bg-gray-950/50 p-4 rounded-xl border border-gray-800/50">
+                                    <div className="flex items-center gap-2 mb-3">
+                                        <div className="w-2 h-2 rounded bg-sky-500 animate-pulse"></div>
+                                        <div className="text-[10px] text-sky-400 font-semibold uppercase tracking-widest">Parsing Structure</div>
+                                    </div>
+                                    <div className="h-2 w-3/4 bg-gray-800 rounded overflow-hidden">
+                                        <div className="h-full bg-sky-500/50 w-full relative">
+                                            <div className="absolute inset-0 bg-white/20 -translate-x-full animate-scan" style={{animationDuration: '2s'}}></div>
+                                        </div>
+                                    </div>
+                                    <div className="h-2 w-full bg-gray-800 rounded"></div>
+                                    <div className="h-2 w-5/6 bg-gray-800 rounded"></div>
+                                    <div className="flex gap-2 pt-3">
+                                        <div className="px-2.5 py-1 bg-sky-500/10 text-sky-400 text-[10px] font-medium rounded border border-sky-500/20">TypeScript</div>
+                                        <div className="px-2.5 py-1 bg-sky-500/10 text-sky-400 text-[10px] font-medium rounded border border-sky-500/20">React</div>
+                                    </div>
+                                </div>
+                            </div>
+
+                            {/* Step 2: pgvector Search */}
+                            <div className="bg-gray-900/60 backdrop-blur-md border border-slate-50/10 rounded-2xl p-8 transition-all duration-500 hover:-translate-y-2 hover:border-violet-500/50 hover:shadow-[0_0_30px_rgba(139,92,246,0.15)] group relative">
+                                {/* Connecting Node Indicator */}
+                                <div className="absolute -left-6 lg:-left-12 top-1/2 w-3 h-3 bg-violet-500 rounded-full -translate-y-1/2 hidden lg:block shadow-[0_0_15px_#8b5cf6]"></div>
+                                
+                                <div className="w-14 h-14 rounded-2xl bg-violet-500/10 text-violet-400 flex items-center justify-center mb-6 border border-violet-500/20 group-hover:scale-110 transition-transform duration-300">
+                                    <svg className="w-7 h-7" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="1.5" d="M19.428 15.428a2 2 0 00-1.022-.547l-2.387-.477a6 6 0 00-3.86.517l-.318.158a6 6 0 01-3.86.517L6.05 15.21a2 2 0 00-1.806.547M8 4h8l-1 1v5.172a2 2 0 00.586 1.414l5 5c1.26 1.26.367 3.414-1.415 3.414H4.828c-1.782 0-2.674-2.154-1.414-3.414l5-5A2 2 0 009 10.172V5L8 4z"></path></svg>
+                                </div>
+                                <h3 className="text-xl font-bold text-slate-50 mb-3 tracking-tight">2. Vector Mapping</h3>
+                                <p className="text-sm text-gray-400 mb-8 leading-relaxed">Converts parsed requirements into deep embeddings, utilizing pgvector to instantly surface candidates with true semantic alignment.</p>
+                                
+                                {/* Animated Mock UI */}
+                                <div className="bg-gray-950/50 p-4 rounded-xl border border-gray-800/50">
+                                    <div className="flex items-center gap-2 mb-4">
+                                        <div className="w-2 h-2 rounded bg-violet-500 animate-ping"></div>
+                                        <div className="text-[10px] text-violet-400 font-semibold uppercase tracking-widest">Scanning Database</div>
+                                    </div>
+                                    <div className="grid grid-cols-4 sm:grid-cols-5 lg:grid-cols-4 gap-2 pt-1">
+                                        {[...Array(16)].map((_, i) => (
+                                            <div key={i} className={`h-6 rounded bg-gray-800 border border-gray-700 transition-colors duration-1000 ${[3,7,12,14].includes(i) ? 'bg-violet-500/20 border-violet-500/50 animate-pulse shadow-[0_0_10px_rgba(139,92,246,0.3)]' : ''}`}></div>
+                                        ))}
+                                    </div>
+                                </div>
+                            </div>
+
+                            {/* Step 3: LLM Eval */}
+                            <div className="bg-gray-900/60 backdrop-blur-md border border-slate-50/10 rounded-2xl p-8 transition-all duration-500 hover:-translate-y-2 hover:border-green-500/50 hover:shadow-[0_0_30px_rgba(34,197,94,0.15)] group flex flex-col relative">
+                                {/* Connecting Node Indicator */}
+                                <div className="absolute -left-6 lg:-left-12 top-1/2 w-3 h-3 bg-green-500 rounded-full -translate-y-1/2 hidden lg:block shadow-[0_0_15px_#22c55e]"></div>
+
+                                <div className="w-14 h-14 rounded-2xl bg-green-500/10 text-green-400 flex items-center justify-center mb-6 border border-green-500/20 group-hover:scale-110 transition-transform duration-300">
+                                    <svg className="w-7 h-7" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z"></path></svg>
+                                </div>
+                                <h3 className="text-xl font-bold text-slate-50 mb-3 tracking-tight">3. LLM Evaluation</h3>
+                                <p className="text-sm text-gray-400 mb-8 leading-relaxed">Our multi-agent system cross-references the candidate's actual resume against the requisition to compute structural gap analysis.</p>
+                                
+                                {/* Animated Mock UI */}
+                                <div className="mt-auto space-y-3 bg-gray-950/50 p-4 rounded-xl border border-gray-800/50">
+                                    <div className="flex items-center gap-2 mb-2">
+                                        <div className="w-2 h-2 rounded bg-green-500 animate-pulse"></div>
+                                        <div className="text-[10px] text-green-400 font-semibold uppercase tracking-widest">Matches Found</div>
+                                    </div>
+                                    <div className="flex items-center gap-3 bg-green-500/5 border border-green-500/20 p-2.5 rounded-lg">
+                                        <div className="w-7 h-7 rounded-full bg-green-500/20 flex items-center justify-center text-[10px] text-green-400 font-bold border border-green-500/30">98%</div>
+                                        <div className="h-1.5 flex-1 bg-gray-800 rounded-full overflow-hidden">
+                                            <div className="h-full bg-gradient-to-r from-green-600 to-green-400 rounded-full" style={{width: '98%'}}></div>
+                                        </div>
+                                    </div>
+                                    <div className="flex items-center gap-3 bg-green-500/5 border border-green-500/20 p-2.5 rounded-lg opacity-75">
+                                        <div className="w-7 h-7 rounded-full bg-green-500/20 flex items-center justify-center text-[10px] text-green-400 font-bold border border-green-500/30">92%</div>
+                                        <div className="h-1.5 flex-1 bg-gray-800 rounded-full overflow-hidden">
+                                            <div className="h-full bg-gradient-to-r from-green-600 to-green-400 rounded-full" style={{width: '92%'}}></div>
+                                        </div>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </section>
+
             <section id="stats" className="py-24 relative z-10 border-t border-slate-50/5 bg-gray-950 overflow-hidden">
                 <div className="absolute inset-0 bg-[url('data:image/svg+xml;base64,PHN2ZyB3aWR0aD0iNjAiIGhlaWdodD0iNjAiIHZpZXdCb3g9IjAgMCA2MCA2MCIgeG1sbnM9Imh0dHA6Ly93d3cudzMub3JnLzIwMDAvc3ZnIj48ZyBmaWxsPSJub25lIiBmaWxsLXJ1bGU9ImV2ZW5vZGQiPjxnIGZpbGw9IiMzOGJkZjgiIGZpbGwtb3BhY2l0eT0iMC4wNSI+PHBhdGggZD0iTTM2IDM0djI2SDI0VjM0SDN2LTEyaDIxdlMtMjZoMTJWMjJoMjF2MTJIMzZ6Ii8+PC9nPjwvZz48L3N2Zz4=')] opacity-30"></div>
                 
@@ -341,25 +464,7 @@ export default function LandingPage() {
                 </div>
             </section>
 
-            {/* Footer */}
-            <footer className="border-t border-slate-50/10 bg-gray-950 pt-16 pb-8 relative z-10">
-                <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
-                    <div className="flex flex-col md:flex-row justify-between items-center gap-6">
-                        <div className="flex items-center gap-3">
-                            <div className="w-8 h-8 rounded-lg bg-gradient-to-br from-sky-400 to-violet-600 flex items-center justify-center">
-                                <svg className="w-4 h-4 text-slate-50" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M13 10V3L4 14h7v7l9-11h-7z"></path></svg>
-                            </div>
-                            <span className="font-display font-bold tracking-tight text-gray-300 text-lg">ResourceStream</span>
-                        </div>
-                        <div className="flex gap-8 text-sm text-gray-500 font-medium">
-                            <a href="#" className="hover:text-slate-50 transition-colors">Documentation</a>
-                            <a href="#" className="hover:text-slate-50 transition-colors">API Reference</a>
-                            <a href="#" className="hover:text-slate-50 transition-colors">Security</a>
-                        </div>
-                        <p className="text-sm text-gray-600 font-medium">© 2026 ResourceStream Inc. All rights reserved.</p>
-                    </div>
-                </div>
-            </footer>
+            <Footer />
         </div>
     );
 }

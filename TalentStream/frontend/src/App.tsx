@@ -10,6 +10,10 @@ import { motion } from 'framer-motion';
 
 // landing page
 import LandingPage from './app/components/landing/LandingPage';
+import WhyResourceStreamPage from './app/components/landing/WhyResourceStreamPage';
+import PrivacyPage from './app/components/landing/PrivacyPage';
+import LegalPage from './app/components/landing/LegalPage';
+import DemoModePage from './app/components/landing/DemoModePage';
 
 // core layout
 import { TalentStreamLayout } from './components/talentstream/TalentStreamLayout';
@@ -68,7 +72,10 @@ function AppContent() {
     <div className="min-h-screen bg-talentstream-bg text-talentstream-on-surface transition-colors duration-300 font-inter antialiased selection:bg-talentstream-primary/20">
       <Routes>
         <Route path="/" element={<LandingPage />} />
-        <Route path="/login" element={<LoginPage />} />
+        <Route path="/why" element={<WhyResourceStreamPage />} />
+        <Route path="/privacy" element={<PrivacyPage />} />
+        <Route path="/legal" element={<LegalPage />} />
+        <Route path="/login" element={import.meta.env.VITE_IS_DEMO_MODE === 'true' ? <DemoModePage /> : <LoginPage />} />
         <Route path="/*" element={<AppShell />} />
       </Routes>
     </div>
