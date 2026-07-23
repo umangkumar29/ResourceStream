@@ -6,6 +6,7 @@ import './LandingPage.css';
 export default function LandingPage() {
     const navigate = useNavigate();
     const [scrolled, setScrolled] = useState(false);
+    const [isMobileMenuOpen, setIsMobileMenuOpen] = useState(false);
     
     // Live mockup state
     const candidates = [
@@ -134,7 +135,7 @@ export default function LandingPage() {
                                 GitHub
                             </a>
                         </div>
-                        <div className="flex items-center">
+                        <div className="hidden md:flex items-center">
                             <button onClick={handleStartFreeTrial} className="bg-slate-50/10 hover:bg-slate-50/20 text-slate-50 px-5 py-2.5 rounded-full text-sm font-medium border border-slate-50/10 transition-all duration-300 hover:scale-105 active:scale-95">
                                 Login
                             </button>
@@ -142,8 +143,34 @@ export default function LandingPage() {
                                 Request Demo
                             </button>
                         </div>
+                        {/* Hamburger Button */}
+                        <div className="md:hidden flex items-center">
+                            <button onClick={() => setIsMobileMenuOpen(!isMobileMenuOpen)} className="text-slate-300 hover:text-slate-50 p-2 focus:outline-none">
+                                {isMobileMenuOpen ? (
+                                    <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M6 18L18 6M6 6l12 12"></path></svg>
+                                ) : (
+                                    <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M4 6h16M4 12h16M4 18h16"></path></svg>
+                                )}
+                            </button>
+                        </div>
                     </div>
                 </div>
+                {/* Mobile Menu Dropdown */}
+                {isMobileMenuOpen && (
+                    <div className="md:hidden absolute top-full left-0 w-full bg-gray-950/95 backdrop-blur-xl border-b border-slate-50/10 shadow-2xl py-6 px-6 flex flex-col gap-4">
+                        <a href="/#features" onClick={() => setIsMobileMenuOpen(false)} className="text-sm font-medium text-gray-300 hover:text-slate-50 py-2 border-b border-gray-800">Features</a>
+                        <a href="/#how-it-works" onClick={() => setIsMobileMenuOpen(false)} className="text-sm font-medium text-gray-300 hover:text-slate-50 py-2 border-b border-gray-800">How it Works</a>
+                        <a href="/#stats" onClick={() => setIsMobileMenuOpen(false)} className="text-sm font-medium text-gray-300 hover:text-slate-50 py-2 border-b border-gray-800">Metrics</a>
+                        <Link to="/why" onClick={() => setIsMobileMenuOpen(false)} className="text-sm font-bold text-sky-400 hover:text-sky-300 py-2 border-b border-gray-800">Why ResourceStream?</Link>
+                        <a href="https://github.com/umangkumar29/TalentStream" target="_blank" rel="noopener noreferrer" className="text-sm font-medium text-gray-300 hover:text-slate-50 py-2 border-b border-gray-800 flex items-center gap-2">
+                             GitHub
+                        </a>
+                        <div className="flex flex-col gap-3 mt-4">
+                            <button onClick={() => { setIsMobileMenuOpen(false); handleStartFreeTrial(); }} className="w-full bg-slate-50/10 hover:bg-slate-50/20 text-slate-50 px-5 py-3 rounded-xl border border-slate-50/10 font-bold">Login</button>
+                            <button onClick={() => { setIsMobileMenuOpen(false); handleStartFreeTrial(); }} className="w-full bg-sky-500 hover:bg-sky-400 text-slate-50 px-5 py-3 rounded-xl font-bold shadow-[0_0_20px_rgba(14,165,233,0.3)]">Request Demo</button>
+                        </div>
+                    </div>
+                )}
             </nav>
 
             {/* Hero Section */}
