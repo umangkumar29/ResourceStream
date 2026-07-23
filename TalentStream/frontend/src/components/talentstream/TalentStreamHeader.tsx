@@ -240,12 +240,21 @@ export const TalentStreamHeader: React.FC = () => {
     >
       {/* Brand */}
       <div className="flex items-center gap-3">
-        <div className="w-7 h-7 rounded overflow-hidden shadow-lg bg-white flex items-center justify-center">
-          <img src="/logo.png" alt="TalentStream Logo" className="w-full h-full object-contain" />
+        <div className="w-7 h-7 flex items-center justify-center">
+          <svg viewBox="0 0 40 40" fill="none" xmlns="http://www.w3.org/2000/svg" className="w-full h-full drop-shadow-md">
+             <rect width="40" height="40" rx="10" fill="url(#paint_linear_header)" />
+             <path d="M20 10L10 30H15L20 20L25 30H30L20 10Z" fill="white" />
+             <defs>
+                <linearGradient id="paint_linear_header" x1="0" y1="0" x2="40" y2="40" gradientUnits="userSpaceOnUse">
+                   <stop stopColor="#38bdf8" />
+                   <stop offset="1" stopColor="#7e22ce" />
+                </linearGradient>
+             </defs>
+          </svg>
         </div>
         <div className="flex flex-col">
           <h1 className="text-2xl font-inter font-black tracking-tighter leading-none" style={{ color: 'var(--talentstream-on-surface)' }}>
-            Talent<span className="text-indigo-600 dark:text-indigo-400">Stream</span>
+            Resource<span className="text-indigo-600 dark:text-indigo-400">Stream</span>
           </h1>
         </div>
       </div>

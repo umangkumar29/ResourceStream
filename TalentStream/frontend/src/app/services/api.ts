@@ -1,8 +1,8 @@
 import axios from 'axios';
 
 const isLocalhost = window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1';
-const BASE = isLocalhost 
-  ? 'http://localhost:8000/api/v1' 
+const BASE = isLocalhost
+  ? 'http://localhost:8000/api/v1'
   : `${window.location.protocol}//${window.location.hostname}:8000/api/v1`;
 
 // ── Shared axios instance ────────────────────────────────────────────────────
@@ -87,6 +87,7 @@ export interface Candidate {
   role_category?: string;
   overall_summary?: string;
   project_summary?: string;
+  match_score?: number;
 }
 
 export interface RMGAnalytics {
@@ -253,20 +254,24 @@ export const fetchPMInterviews = (jobId?: string): Promise<any[]> =>
   api.get('/pm/interviews', { params: { job_id: jobId } }).then((r) => r.data);
 
 // RMG Resource Services
+// RMG Resource Services
 export const listCandidates = (params?: { search?: string, status_filter?: string, skip?: number, limit?: number, role_category?: string }): Promise<Candidate[]> =>
   api.get('/candidates', { params }).then((r) => r.data);
+
+export const searchAIAssistant = (search: string, limit: number = 5): Promise<Candidate[]> =>
+  api.post('/sourcing/chat', { search, limit }).then((r) => r.data);
 
 export const deleteCandidate = (candidateId: string): Promise<any> =>
   api.delete(`/candidates/${candidateId}`);
 
-export const updateCandidate = (id: string, data: { 
-  name?: string; 
+export const updateCandidate = (id: string, data: {
+  name?: string;
   employee_id?: string;
-  email?: string; 
+  email?: string;
   phone?: string;
   skills?: string;
-  status?: string; 
-}): Promise<any> => 
+  status?: string;
+}): Promise<any> =>
   api.patch(`/candidates/${id}`, data);
 
 // RMG Resource Services

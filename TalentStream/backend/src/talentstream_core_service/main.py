@@ -2,7 +2,7 @@ from fastapi import FastAPI, Depends, Request
 from fastapi.middleware.cors import CORSMiddleware
 import time
 
-from talentstream_core_service.api.v1.endpoints import candidates, jobs, auth, analytics, projects, notifications
+from talentstream_core_service.api.v1.endpoints import candidates, jobs, auth, analytics, projects, notifications, chat
 from talentstream_core_service.db.database import engine, Base
 from talentstream_core_service.configs.config import settings
 from talentstream_core_service.observability.logger import logger
@@ -55,6 +55,7 @@ app.add_middleware(
 )
 
 # ── API Routes ────────────────────────────────────────────────────────────────
+app.include_router(chat.router, prefix="/api/v1/sourcing", tags=["Sourcing"])
 app.include_router(auth.router, prefix="/api/v1", tags=["Auth"])
 app.include_router(candidates.router, prefix="/api/v1", tags=["Candidates"])
 app.include_router(jobs.router, prefix="/api/v1", tags=["Jobs"])

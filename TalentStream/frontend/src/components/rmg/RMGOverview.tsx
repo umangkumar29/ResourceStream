@@ -418,14 +418,14 @@ export const RMGOverview: React.FC = () => {
           <div className="flex items-center gap-1 p-1 bg-slate-100 dark:bg-white/5 rounded-2xl mr-2">
             <button
               onClick={() => setActiveDashboardView('talent')}
-              className={`px-4 py-2.5 rounded-xl text-[10px] font-black uppercase tracking-widest transition-all flex items-center gap-2 ${activeDashboardView === 'talent' ? 'bg-white dark:bg-white/10 text-talentstream-primary shadow-sm' : 'text-slate-500 hover:text-slate-700 dark:hover:text-slate-300'
+              className={`px-4 py-2.5 rounded-xl text-[10px] font-black uppercase tracking-widest transition-all flex items-center gap-2 ${activeDashboardView === 'talent' ? 'bg-white/10 text-white shadow-sm' : 'text-slate-500 hover:text-slate-700 dark:hover:text-slate-300'
                 }`}
             >
               <Users className="w-3.5 h-3.5" /> Talent Pool
             </button>
             <button
               onClick={() => setActiveDashboardView('demand')}
-              className={`px-4 py-2.5 rounded-xl text-[10px] font-black uppercase tracking-widest transition-all flex items-center gap-2 ${activeDashboardView === 'demand' ? 'bg-white dark:bg-white/10 text-talentstream-primary shadow-sm' : 'text-slate-500 hover:text-slate-700 dark:hover:text-slate-300'
+              className={`px-4 py-2.5 rounded-xl text-[10px] font-black uppercase tracking-widest transition-all flex items-center gap-2 ${activeDashboardView === 'demand' ? 'bg-white/10 text-white shadow-sm' : 'text-slate-500 hover:text-slate-700 dark:hover:text-slate-300'
                 }`}
             >
               <Layers className="w-3.5 h-3.5" /> Overall Demand

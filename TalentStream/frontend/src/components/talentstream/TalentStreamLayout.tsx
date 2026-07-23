@@ -2,6 +2,7 @@ import React from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { useLocation } from 'react-router-dom';
 import { TalentStreamHeader } from './TalentStreamHeader';
+import { AIAssistant } from './AIAssistant';
 
 export const TalentStreamLayout: React.FC<{ children: React.ReactNode }> = ({ children }) => {
   const location = useLocation();
@@ -25,6 +26,8 @@ export const TalentStreamLayout: React.FC<{ children: React.ReactNode }> = ({ ch
           </AnimatePresence>
         </div>
       </main>
+
+      <AIAssistant />
     </div>
   );
 };

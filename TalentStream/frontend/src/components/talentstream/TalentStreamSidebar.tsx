@@ -77,8 +77,17 @@ export const TalentStreamSidebar: React.FC = () => {
       <div className="p-10 pb-12">
         <div className="flex flex-col gap-2">
           <div className="flex items-center gap-3">
-            <div className="w-8 h-8 rounded-lg overflow-hidden shadow-lg bg-white flex items-center justify-center">
-              <img src="/logo.png" alt="TalentStream Logo" className="w-full h-full object-contain" />
+            <div className="w-8 h-8 flex items-center justify-center">
+              <svg viewBox="0 0 40 40" fill="none" xmlns="http://www.w3.org/2000/svg" className="w-full h-full drop-shadow-md">
+                 <rect width="40" height="40" rx="10" fill="url(#paint_linear_sidebar)" />
+                 <path d="M20 10L10 30H15L20 20L25 30H30L20 10Z" fill="white" />
+                 <defs>
+                    <linearGradient id="paint_linear_sidebar" x1="0" y1="0" x2="40" y2="40" gradientUnits="userSpaceOnUse">
+                       <stop stopColor="#38bdf8" />
+                       <stop offset="1" stopColor="#7e22ce" />
+                    </linearGradient>
+                 </defs>
+              </svg>
             </div>
             <h1 className="text-xl font-manrope font-extrabold tracking-tight uppercase" style={{ color: 'var(--talentstream-on-surface)' }}>
               TalentStream<span className="text-talentstream-primary">Elite</span>
