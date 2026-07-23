@@ -1,3 +1,4 @@
+import React, { useEffect } from 'react';
 import { BrowserRouter, Routes, Route, Navigate } from 'react-router-dom';
 import { AuthProvider, useAuth } from './app/services/auth/AuthProvider';
 import { ThemeProvider } from './app/services/context/ThemeContext';
@@ -67,7 +68,7 @@ function AppContent() {
     <div className="min-h-screen bg-talentstream-bg text-talentstream-on-surface transition-colors duration-300 font-inter antialiased selection:bg-talentstream-primary/20">
       <Routes>
         <Route path="/" element={<LandingPage />} />
-        <Route path="/login" element={<LoginWithRedirect />} />
+        <Route path="/login" element={<LoginPage />} />
         <Route path="/*" element={<AppShell />} />
       </Routes>
     </div>
@@ -118,11 +119,7 @@ function AppShell() {
   );
 }
 
-function LoginWithRedirect() {
-  const { user } = useAuth();
-  if (user) return <Navigate to={ROLE_CONFIG[user.role]?.defaultRoute || '/dashboard'} replace />;
-  return <LoginPage />;
-}
+
 
 export default function App() {
   return (

@@ -240,8 +240,8 @@ export const TalentStreamHeader: React.FC = () => {
     >
       {/* Brand */}
       <div className="flex items-center gap-3">
-        <div className="w-7 h-7 rounded bg-talentstream-primary flex items-center justify-center shadow-lg shadow-talentstream-primary/20">
-          <Cpu className="w-4 h-4 text-white" />
+        <div className="w-7 h-7 rounded overflow-hidden shadow-lg bg-white flex items-center justify-center">
+          <img src="/logo.png" alt="TalentStream Logo" className="w-full h-full object-contain" />
         </div>
         <div className="flex flex-col">
           <h1 className="text-2xl font-inter font-black tracking-tighter leading-none" style={{ color: 'var(--talentstream-on-surface)' }}>

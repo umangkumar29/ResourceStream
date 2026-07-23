@@ -121,7 +121,7 @@ export default function LandingPage() {
                             <div className="w-10 h-10 rounded-xl bg-gradient-to-br from-sky-400 to-violet-600 flex items-center justify-center shadow-[0_0_20px_rgba(56,189,248,0.3)]">
                                 <svg className="w-5 h-5 text-slate-50" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M13 10V3L4 14h7v7l9-11h-7z"></path></svg>
                             </div>
-                            <span className="font-display font-bold text-xl tracking-tight text-slate-50">TalentStream</span>
+                            <span className="font-display font-bold text-xl tracking-tight text-slate-50">ResourceStream</span>
                         </div>
                         <div className="hidden md:flex items-center space-x-8">
                             <a href="#features" className="text-sm font-medium text-gray-400 hover:text-slate-50 transition-colors">Features</a>
@@ -154,7 +154,7 @@ export default function LandingPage() {
                 </h1>
                 
                 <p ref={setHeroRef} className="hero-element text-lg md:text-xl text-gray-400 max-w-2xl mx-auto mb-10 leading-relaxed">
-                    Eliminate bench downtime. TalentStream uses hybrid vector search and deep LLM evaluations to perfectly align open job requirements with your available workforce in milliseconds.
+                    Eliminate bench downtime. ResourceStream uses hybrid vector search and deep LLM evaluations to perfectly align open job requirements with your available workforce in milliseconds.
                 </p>
                 
                 <div ref={setHeroRef} className="hero-element flex flex-col sm:flex-row items-center justify-center gap-4 mb-20">
@@ -349,14 +349,14 @@ export default function LandingPage() {
                             <div className="w-8 h-8 rounded-lg bg-gradient-to-br from-sky-400 to-violet-600 flex items-center justify-center">
                                 <svg className="w-4 h-4 text-slate-50" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M13 10V3L4 14h7v7l9-11h-7z"></path></svg>
                             </div>
-                            <span className="font-display font-bold tracking-tight text-gray-300 text-lg">TalentStream</span>
+                            <span className="font-display font-bold tracking-tight text-gray-300 text-lg">ResourceStream</span>
                         </div>
                         <div className="flex gap-8 text-sm text-gray-500 font-medium">
                             <a href="#" className="hover:text-slate-50 transition-colors">Documentation</a>
                             <a href="#" className="hover:text-slate-50 transition-colors">API Reference</a>
                             <a href="#" className="hover:text-slate-50 transition-colors">Security</a>
                         </div>
-                        <p className="text-sm text-gray-600 font-medium">© 2026 TalentStream Inc. All rights reserved.</p>
+                        <p className="text-sm text-gray-600 font-medium">© 2026 ResourceStream Inc. All rights reserved.</p>
                     </div>
                 </div>
             </footer>

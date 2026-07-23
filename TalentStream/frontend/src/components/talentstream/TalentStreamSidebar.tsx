@@ -77,8 +77,8 @@ export const TalentStreamSidebar: React.FC = () => {
       <div className="p-10 pb-12">
         <div className="flex flex-col gap-2">
           <div className="flex items-center gap-3">
-            <div className="w-8 h-8 rounded-lg bg-talentstream-primary flex items-center justify-center shadow-lg shadow-talentstream-primary/20">
-              <Cpu className="w-5 h-5 text-talentstream-bg" />
+            <div className="w-8 h-8 rounded-lg overflow-hidden shadow-lg bg-white flex items-center justify-center">
+              <img src="/logo.png" alt="TalentStream Logo" className="w-full h-full object-contain" />
             </div>
             <h1 className="text-xl font-manrope font-extrabold tracking-tight uppercase" style={{ color: 'var(--talentstream-on-surface)' }}>
               TalentStream<span className="text-talentstream-primary">Elite</span>
