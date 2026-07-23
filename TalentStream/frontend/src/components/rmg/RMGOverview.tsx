@@ -478,7 +478,6 @@ export const RMGOverview: React.FC = () => {
               animate={{ opacity: 1, y: 0 }}
               transition={{ delay: i * 0.05 }}
               onClick={() => {
-                if (activeDashboardView === 'demand') return;
                 setActiveFilter(activeFilter === stat.filterKey ? null : stat.filterKey);
               }}
               className={`group relative p-4 rounded-2xl border ${stat.borderColor} ${stat.bgColor} transition-all duration-200 ${activeDashboardView === 'talent' ? 'cursor-pointer' : 'cursor-default opacity-80 grayscale-[30%]'

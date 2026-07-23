@@ -66,6 +66,7 @@ export interface Job {
   project_name?: string | null;
   project_code?: string | null;
   min_experience_years?: number | null;
+  last_activity_at?: string;
 }
 
 export type JobRequest = Job;
